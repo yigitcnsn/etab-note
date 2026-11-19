@@ -1,7 +1,8 @@
 #define _GNU_SOURCE
-#include "noteos.h"
+#include "settings.h"
+#include "fb.h"
+#include "osk.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,7 @@
 #define WPA_CLI_PATH "/system/bin/wpa_cli"
 #define WPA_SOCK_DIR "/data/misc/wifi/sockets"
 
-static bool hit_r(int px, int py, int x, int y, int w, int h) {
+static bool hit_rect(int px, int py, int x, int y, int w, int h) {
     return px >= x && px < x + w && py >= y && py < y + h;
 }
 
@@ -40,7 +41,6 @@ static void read_str_file(const char *path, char *out, size_t sz, const char *fa
     fclose(f);
 }
 
-/* Safe exec without shell — captures stdout into buf */
 static int run_cmd_capture(char *const argv[], char *out, size_t out_sz) {
     int pipefd[2];
     if (pipe(pipefd) != 0) return -1;
@@ -93,7 +93,10 @@ static int wpa_cmd(const char *a1, const char *a2, const char *a3, const char *a
 
 static void parse_ip_from_sys(char *ip_out, size_t sz) {
     char buf[1024] = {0};
-    char *argv[] = { (char *)"/system/bin/ip", (char *)"-4", (char *)"addr", (char *)"show", (char *)"wlan0", NULL };
+    char *argv[] = {
+        (char *)"/system/bin/ip", (char *)"-4", (char *)"addr",
+        (char *)"show", (char *)"wlan0", NULL
+    };
     if (run_cmd_capture(argv, buf, sizeof(buf)) == 0) {
         char *p = strstr(buf, "inet ");
         if (p) {
@@ -116,13 +119,12 @@ void settings_refresh(SettingsState *st) {
     if (wpa_cmd("status", NULL, NULL, NULL, out, sizeof(out)) == 0) {
         char *saveptr = NULL;
         for (char *line = strtok_r(out, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
-            if (strncmp(line, "ssid=", 5) == 0) {
+            if (strncmp(line, "ssid=", 5) == 0)
                 snprintf(st->ssid, sizeof(st->ssid), "%s", line + 5);
-            } else if (strncmp(line, "wpa_state=", 10) == 0) {
+            else if (strncmp(line, "wpa_state=", 10) == 0)
                 snprintf(st->wpa_state, sizeof(st->wpa_state), "%s", line + 10);
-            } else if (strncmp(line, "ip_address=", 11) == 0) {
+            else if (strncmp(line, "ip_address=", 11) == 0)
                 snprintf(st->ip, sizeof(st->ip), "%s", line + 11);
-            }
         }
     }
     if (strcmp(st->ip, "NONE") == 0) {
@@ -133,7 +135,7 @@ void settings_refresh(SettingsState *st) {
 static int cmp_wifi(const void *a, const void *b) {
     const WifiNet *wa = (const WifiNet *)a;
     const WifiNet *wb = (const WifiNet *)b;
-    return wb->signal - wa->signal; /* strongest first */
+    return wb->signal - wa->signal;
 }
 
 void settings_scan_wifi(SettingsState *st) {
@@ -151,8 +153,7 @@ void settings_scan_wifi(SettingsState *st) {
     char *saveptr = NULL;
     bool first = true;
     for (char *line = strtok_r(out, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
-        if (first) { first = false; continue; } /* header line */
-        /* bssid \t freq \t signal \t flags \t ssid */
+        if (first) { first = false; continue; }
         char *t1 = strchr(line, '\t'); if (!t1) continue;
         char *t2 = strchr(t1 + 1, '\t'); if (!t2) continue;
         char *t3 = strchr(t2 + 1, '\t'); if (!t3) continue;
@@ -165,7 +166,6 @@ void settings_scan_wifi(SettingsState *st) {
         while (slen > 0 && (ssid[slen - 1] == '\r' || ssid[slen - 1] == '\n')) ssid[--slen] = '\0';
         if (slen == 0) continue;
 
-        /* deduplicate by SSID, keeping stronger signal */
         int dup = -1;
         for (int i = 0; i < st->net_count; i++) {
             if (strcmp(st->nets[i].ssid, ssid) == 0) { dup = i; break; }
@@ -184,16 +184,14 @@ void settings_scan_wifi(SettingsState *st) {
     settings_refresh(st);
 }
 
-static void connect_wifi_network(SettingsState *st, const char *ssid, const char *psk) {
+void settings_connect_wifi(SettingsState *st, const char *ssid, const char *psk) {
     char id_buf[64] = {0};
     if (wpa_cmd("add_network", NULL, NULL, NULL, id_buf, sizeof(id_buf)) != 0) {
         snprintf(st->status_msg, sizeof(st->status_msg), "ADD_NETWORK FAILED");
         return;
     }
-    /* strip whitespace */
-    int nid = atoi(id_buf);
     char id_str[16];
-    snprintf(id_str, sizeof(id_str), "%d", nid);
+    snprintf(id_str, sizeof(id_str), "%d", atoi(id_buf));
 
     char q_ssid[160], q_psk[160], res[128];
     snprintf(q_ssid, sizeof(q_ssid), "\"%s\"", ssid);
@@ -229,273 +227,30 @@ static void restart_adbd_tcp(SettingsState *st) {
     snprintf(st->status_msg, sizeof(st->status_msg), "ADBD RESTARTED ON :5555");
 }
 
-void settings_open_osk(SettingsState *st, OskPurpose purpose, const char *prompt,
-                       const char *initial, const char *target_ssid) {
-    memset(&st->osk, 0, sizeof(st->osk));
-    st->osk.open = true;
-    st->osk.purpose = purpose;
-    snprintf(st->osk.prompt, sizeof(st->osk.prompt), "%s", prompt ? prompt : "ENTER TEXT");
-    if (target_ssid) snprintf(st->osk.target_ssid, sizeof(st->osk.target_ssid), "%s", target_ssid);
-    if (initial && initial[0]) {
-        snprintf(st->osk.buf, sizeof(st->osk.buf), "%s", initial);
-        st->osk.len = (int)strlen(st->osk.buf);
-    }
-}
-
-static void draw_btn(FB *fb, const ThemePalette *tp, int x, int y, int w, int h,
-                     const char *label, bool active, bool danger) {
-    uint32_t bg = active ? tp->accent : tp->bar_bg;
-    uint32_t fg = active ? 0xFFFFFF : tp->bar_text;
-    uint32_t bd = active ? tp->accent : tp->bar_border;
-    if (danger) { bg = 0xD9383A; fg = 0xFFFFFF; bd = 0xD9383A; }
-    fb_fill_rect(fb, x, y, w, h, bg);
-    fb_stroke_rect(fb, x, y, w, h, 2, bd);
-    int tw = fb_text_width(label, 2);
-    fb_draw_text(fb, x + (w - tw) / 2, y + (h - 14) / 2, label, fg, 2);
-}
-
-/* ---- On-Screen QWERTY Keyboard ---- */
-static const char *ROW0_ALPHA = "1234567890";
-static const char *ROW1_ALPHA = "QWERTYUIOP";
-static const char *ROW2_ALPHA = "ASDFGHJKL";
-static const char *ROW3_ALPHA = "ZXCVBNM";
-
-static const char *ROW0_SYM = "!@#$%^&*()";
-static const char *ROW1_SYM = "-_=+[]{};:";
-static const char *ROW2_SYM = "'\",.<>/?\\";
-static const char *ROW3_SYM = "|~`!@#?";
-
-static void render_osk_textbox(FB *fb, const ThemePalette *tp, const OskState *osk) {
-    int bx = 180, by = 220, bw = fb->w - 360;
-    fb_fill_rect(fb, bx + 28, by + 62, bw - 56, 62, tp->bg);
-    fb_stroke_rect(fb, bx + 28, by + 62, bw - 56, 62, 2, tp->bar_border);
-    char disp[140];
-    snprintf(disp, sizeof(disp), "%s_", osk->buf);
-    fb_draw_text(fb, bx + 44, by + 84, disp, tp->bar_text, 2);
-}
-
-static void render_osk(FB *fb, const ThemePalette *tp, const OskState *osk) {
-    int bx = 180, by = 220, bw = fb->w - 360, bh = 740;
-    fb_fill_rect(fb, bx, by, bw, bh, tp->sidebar_bg);
-    fb_stroke_rect(fb, bx, by, bw, bh, 3, tp->accent);
-
-    fb_draw_text(fb, bx + 28, by + 24, osk->prompt, tp->accent, 2);
-    render_osk_textbox(fb, tp, osk);
-
-    const char *r0 = osk->symbols ? ROW0_SYM : ROW0_ALPHA;
-    const char *r1 = osk->symbols ? ROW1_SYM : ROW1_ALPHA;
-    const char *r2 = osk->symbols ? ROW2_SYM : ROW2_ALPHA;
-    const char *r3 = osk->symbols ? ROW3_SYM : ROW3_ALPHA;
-
-    int kw = 136, kh = 92, gap = 12;
-    int start_y = by + 150;
-
-    /* Row 0 (10 keys) */
-    int rx0 = bx + (bw - (10 * kw + 9 * gap)) / 2;
-    for (int i = 0; i < 10; i++) {
-        char lbl[2] = { r0[i], '\0' };
-        draw_btn(fb, tp, rx0 + i * (kw + gap), start_y, kw, kh, lbl, false, false);
-    }
-
-    /* Row 1 (10 keys) */
-    int ry1 = start_y + kh + gap;
-    for (int i = 0; i < 10; i++) {
-        char lbl[2] = { r1[i], '\0' };
-        draw_btn(fb, tp, rx0 + i * (kw + gap), ry1, kw, kh, lbl, false, false);
-    }
-
-    /* Row 2 (9 keys) */
-    int ry2 = ry1 + kh + gap;
-    int rx2 = bx + (bw - (9 * kw + 8 * gap)) / 2;
-    for (int i = 0; i < 9; i++) {
-        char lbl[2] = { r2[i], '\0' };
-        draw_btn(fb, tp, rx2 + i * (kw + gap), ry2, kw, kh, lbl, false, false);
-    }
-
-    /* Row 3: SHIFT + 7 keys + BKSP */
-    int ry3 = ry2 + kh + gap;
-    int rx3 = rx0;
-    draw_btn(fb, tp, rx3, ry3, kw + 40, kh, osk->shift ? "CAPS" : "SHIFT", osk->shift, false);
-    int k3_start = rx3 + kw + 40 + gap;
-    for (int i = 0; i < 7; i++) {
-        char lbl[2] = { r3[i], '\0' };
-        draw_btn(fb, tp, k3_start + i * (kw + gap), ry3, kw, kh, lbl, false, false);
-    }
-    int bksp_x = k3_start + 7 * (kw + gap);
-    draw_btn(fb, tp, bksp_x, ry3, rx0 + 10 * kw + 9 * gap - bksp_x, kh, "BKSP", false, false);
-
-    /* Row 4: SYM, CLR, SPACE, CANCEL, OK */
-    int ry4 = ry3 + kh + gap + 8;
-    draw_btn(fb, tp, rx0, ry4, 150, kh, osk->symbols ? "ABC" : "!@#", osk->symbols, false);
-    draw_btn(fb, tp, rx0 + 162, ry4, 140, kh, "CLR", false, false);
-    draw_btn(fb, tp, rx0 + 314, ry4, 590, kh, "SPACE", false, false);
-    draw_btn(fb, tp, rx0 + 918, ry4, 260, kh, "CANCEL", false, false);
-    draw_btn(fb, tp, rx0 + 1192, ry4, rx0 + 10 * kw + 9 * gap - (rx0 + 1192), kh, "OK", true, false);
-}
-
-static void osk_set_highlight(OskState *osk, int x, int y, int w, int h, const char *lbl) {
-    osk->hi_x = x; osk->hi_y = y; osk->hi_w = w; osk->hi_h = h;
-    snprintf(osk->hi_label, sizeof(osk->hi_label), "%s", lbl);
-    osk->hi_active = true;
-}
-
-void settings_render_osk_fast(FB *fb, ThemeKind theme, SettingsState *st) {
-    if (!st->osk.open) return;
-    const ThemePalette *tp = &THEMES[theme];
-    if (st->osk.need_full_keys) {
-        st->osk.need_full_keys = false;
-        render_osk(fb, tp, &st->osk);
-    } else {
-        render_osk_textbox(fb, tp, &st->osk);
-        if (st->osk.hi_active) {
-            draw_btn(fb, tp, st->osk.hi_x, st->osk.hi_y, st->osk.hi_w, st->osk.hi_h,
-                     st->osk.hi_label, true, false);
-        }
-    }
-}
-
-void settings_osk_release(FB *fb, ThemeKind theme, SettingsState *st) {
-    if (!st->osk.open || !st->osk.hi_active) return;
-    const ThemePalette *tp = &THEMES[theme];
-    draw_btn(fb, tp, st->osk.hi_x, st->osk.hi_y, st->osk.hi_w, st->osk.hi_h,
-             st->osk.hi_label, false, false);
-    st->osk.hi_active = false;
-}
-
-static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
-                          OskPurpose *out_purpose, char *out_text, size_t out_sz) {
-    OskState *osk = &st->osk;
-    int bx = 180, by = 220, bw = fb->w - 360;
-    int kw = 136, kh = 92, gap = 12;
-    int start_y = by + 150;
-    int rx0 = bx + (bw - (10 * kw + 9 * gap)) / 2;
-    int rx2 = bx + (bw - (9 * kw + 8 * gap)) / 2;
-
-    const char *r0 = osk->symbols ? ROW0_SYM : ROW0_ALPHA;
-    const char *r1 = osk->symbols ? ROW1_SYM : ROW1_ALPHA;
-    const char *r2 = osk->symbols ? ROW2_SYM : ROW2_ALPHA;
-    const char *r3 = osk->symbols ? ROW3_SYM : ROW3_ALPHA;
-
-    char ch = 0;
-    int hx = 0, hy = 0, hw = kw, hh = kh;
-    int ry1 = start_y + kh + gap;
-    int ry2 = ry1 + kh + gap;
-    int ry3 = ry2 + kh + gap;
-    int ry4 = ry3 + kh + gap + 8;
-
-    for (int i = 0; i < 10; i++) {
-        int kx = rx0 + i * (kw + gap);
-        if (hit_r(x, y, kx, start_y, kw, kh)) { ch = r0[i]; hx = kx; hy = start_y; }
-        if (hit_r(x, y, kx, ry1, kw, kh))     { ch = r1[i]; hx = kx; hy = ry1; }
-    }
-    for (int i = 0; i < 9; i++) {
-        int kx = rx2 + i * (kw + gap);
-        if (hit_r(x, y, kx, ry2, kw, kh))     { ch = r2[i]; hx = kx; hy = ry2; }
-    }
-    int k3_start = rx0 + kw + 40 + gap;
-    for (int i = 0; i < 7; i++) {
-        int kx = k3_start + i * (kw + gap);
-        if (hit_r(x, y, kx, ry3, kw, kh))     { ch = r3[i]; hx = kx; hy = ry3; }
-    }
-
-    if (ch) {
-        char lbl[2] = { ch, '\0' };
-        osk_set_highlight(osk, hx, hy, hw, hh, lbl);
-        if (!osk->symbols && !osk->shift && ch >= 'A' && ch <= 'Z') {
-            ch = (char)(ch - 'A' + 'a');
-        }
-        if (osk->len + 1 < (int)sizeof(osk->buf)) {
-            osk->buf[osk->len++] = ch;
-            osk->buf[osk->len] = '\0';
-        }
-        return SET_ACT_OSK_FAST;
-    }
-
-    if (hit_r(x, y, rx0, ry3, kw + 40, kh)) {
-        osk->shift = !osk->shift;
-        osk->hi_active = false;
-        osk->need_full_keys = true;
-        return SET_ACT_OSK_FAST;
-    }
-    int bksp_x = k3_start + 7 * (kw + gap);
-    int bksp_w = rx0 + 10 * kw + 9 * gap - bksp_x;
-    if (hit_r(x, y, bksp_x, ry3, bksp_w, kh)) {
-        osk_set_highlight(osk, bksp_x, ry3, bksp_w, kh, "BKSP");
-        if (osk->len > 0) osk->buf[--osk->len] = '\0';
-        return SET_ACT_OSK_FAST;
-    }
-    if (hit_r(x, y, rx0, ry4, 150, kh)) {
-        osk->symbols = !osk->symbols;
-        osk->hi_active = false;
-        osk->need_full_keys = true;
-        return SET_ACT_OSK_FAST;
-    }
-    if (hit_r(x, y, rx0 + 162, ry4, 140, kh)) {
-        osk_set_highlight(osk, rx0 + 162, ry4, 140, kh, "CLR");
-        osk->len = 0;
-        osk->buf[0] = '\0';
-        return SET_ACT_OSK_FAST;
-    }
-    if (hit_r(x, y, rx0 + 314, ry4, 590, kh)) {
-        osk_set_highlight(osk, rx0 + 314, ry4, 590, kh, "SPACE");
-        if (osk->len + 1 < (int)sizeof(osk->buf)) {
-            osk->buf[osk->len++] = ' ';
-            osk->buf[osk->len] = '\0';
-        }
-        return SET_ACT_OSK_FAST;
-    }
-    if (hit_r(x, y, rx0 + 918, ry4, 260, kh)) {
-        osk->open = false;
-        osk->hi_active = false;
-        return SET_ACT_REDRAW;
-    }
-    int ok_w = rx0 + 10 * kw + 9 * gap - (rx0 + 1192);
-    if (hit_r(x, y, rx0 + 1192, ry4, ok_w, kh)) {
-        OskPurpose p = osk->purpose;
-        char text[128], ssid[64];
-        snprintf(text, sizeof(text), "%s", osk->buf);
-        snprintf(ssid, sizeof(ssid), "%s", osk->target_ssid);
-        osk->open = false;
-        osk->hi_active = false;
-        if (p == OSK_WIFI_PASS) {
-            connect_wifi_network(st, ssid, text);
-            return SET_ACT_REDRAW;
-        }
-        if (out_purpose) *out_purpose = p;
-        if (out_text && out_sz > 0) snprintf(out_text, out_sz, "%s", text);
-        return SET_ACT_OSK_DONE;
-    }
-    return SET_ACT_NONE;
-}
-
 void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
-    const ThemePalette *tp = &THEMES[theme];
-
-    /* If only OSK is open over canvas/sidebar (rename note), draw OSK only */
     if (!st->open && st->osk.open) {
-        render_osk(fb, tp, &st->osk);
+        osk_render_full(fb, theme, &st->osk);
         return;
     }
     if (!st->open) return;
 
-    /* Fullscreen settings background */
+    const ThemePalette *tp = &THEMES[theme];
     fb_fill_rect(fb, 0, 0, fb->w, fb->h, tp->bg);
 
     /* Top header */
     fb_fill_rect(fb, 0, 0, fb->w, TOOLBAR_H, tp->bar_bg);
     fb_fill_rect(fb, 0, TOOLBAR_H - 2, fb->w, 2, tp->bar_border);
-    draw_btn(fb, tp, 14, 9, 130, 40, "< BACK", true, false);
+    fb_draw_button(fb, tp, 14, 9, 130, 40, "< BACK", true, false);
     fb_draw_text(fb, 170, 20, "E-TAB 5 OS SETTINGS", tp->bar_text, 2);
     if (st->status_msg[0]) {
         int tw = fb_text_width(st->status_msg, 2);
         fb_draw_text(fb, fb->w - tw - 24, 20, st->status_msg, tp->accent, 2);
     }
 
-    /* ---- LEFT PANEL: WI-FI ---- */
+    /* Left panel: Wi-Fi */
     int lx = 32, ly = TOOLBAR_H + 28, lw = 910, lh = fb->h - TOOLBAR_H - 56;
     fb_fill_rect(fb, lx, ly, lw, lh, tp->sidebar_bg);
     fb_stroke_rect(fb, lx, ly, lw, lh, 2, tp->bar_border);
-
     fb_draw_text(fb, lx + 24, ly + 22, "WI-FI (WLAN0)", tp->accent, 2);
 
     char line[128];
@@ -506,9 +261,9 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
     snprintf(line, sizeof(line), "IP ADDR : %s   (ADB :5555)", st->ip);
     fb_draw_text(fb, lx + 24, ly + 120, line, tp->bar_text, 2);
 
-    draw_btn(fb, tp, lx + 24,  ly + 162, 190, 48, "SCAN WIFI", true, false);
-    draw_btn(fb, tp, lx + 228, ly + 162, 210, 48, "RECONNECT", false, false);
-    draw_btn(fb, tp, lx + 452, ly + 162, 220, 48, "DISCONNECT", false, false);
+    fb_draw_button(fb, tp, lx + 24,  ly + 162, 190, 48, "SCAN WIFI", true, false);
+    fb_draw_button(fb, tp, lx + 228, ly + 162, 210, 48, "RECONNECT", false, false);
+    fb_draw_button(fb, tp, lx + 452, ly + 162, 220, 48, "DISCONNECT", false, false);
 
     fb_fill_rect(fb, lx + 20, ly + 228, lw - 40, 2, tp->bar_border);
     fb_draw_text(fb, lx + 24, ly + 242, "NEARBY NETWORKS (TAP TO CONNECT)", tp->bar_muted, 2);
@@ -531,29 +286,26 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
         }
     }
 
-    /* ---- RIGHT PANEL: DISPLAY, BATTERY & SYSTEM ---- */
+    /* Right panel: Display, Battery & System */
     int rx = 974, ry = ly, rw = fb->w - rx - 32, rh = lh;
     fb_fill_rect(fb, rx, ry, rw, rh, tp->sidebar_bg);
     fb_stroke_rect(fb, rx, ry, rw, rh, 2, tp->bar_border);
 
-    /* Brightness */
     int bri = fb_get_backlight();
-    int bri_pct = (bri * 100) / 255;
     fb_draw_text(fb, rx + 24, ry + 22, "DISPLAY BRIGHTNESS", tp->accent, 2);
-    snprintf(line, sizeof(line), "%d%% (%d / 255)", bri_pct, bri);
+    snprintf(line, sizeof(line), "%d%% (%d / 255)", (bri * 100) / 255, bri);
     fb_draw_text(fb, rx + rw - fb_text_width(line, 2) - 24, ry + 22, line, tp->bar_text, 2);
 
-    draw_btn(fb, tp, rx + 24, ry + 62, 74, 52, "-", false, false);
+    fb_draw_button(fb, tp, rx + 24, ry + 62, 74, 52, "-", false, false);
     int bar_x = rx + 112, bar_y = ry + 66, bar_w = rw - 224, bar_h = 44;
     fb_fill_rect(fb, bar_x, bar_y, bar_w, bar_h, tp->bar_bg);
     fb_stroke_rect(fb, bar_x, bar_y, bar_w, bar_h, 2, tp->bar_border);
     int fill_w = (bar_w - 4) * bri / 255;
     if (fill_w > 0) fb_fill_rect(fb, bar_x + 2, bar_y + 2, fill_w, bar_h - 4, tp->accent);
-    draw_btn(fb, tp, rx + rw - 98, ry + 62, 74, 52, "+", false, false);
+    fb_draw_button(fb, tp, rx + rw - 98, ry + 62, 74, 52, "+", false, false);
 
     fb_fill_rect(fb, rx + 20, ry + 136, rw - 40, 2, tp->bar_border);
 
-    /* Battery & Storage */
     fb_draw_text(fb, rx + 24, ry + 156, "BATTERY & STORAGE", tp->accent, 2);
     int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
     int vol = read_int_file("/sys/class/power_supply/battery/batt_vol", 0);
@@ -579,41 +331,49 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
 
     fb_fill_rect(fb, rx + 20, ry + 306, rw - 40, 2, tp->bar_border);
 
-    /* Remote / ADB */
     fb_draw_text(fb, rx + 24, ry + 326, "REMOTE ACCESS (ADB OVER WI-FI)", tp->accent, 2);
     snprintf(line, sizeof(line), "CONNECT : ADB CONNECT %s:5555", st->ip);
     fb_draw_text(fb, rx + 24, ry + 362, line, tp->bar_text, 2);
-    draw_btn(fb, tp, rx + 24, ry + 402, 340, 52, "RESTART ADBD :5555", false, false);
-    draw_btn(fb, tp, rx + 380, ry + 402, 220, 52, "REFRESH", false, false);
+    fb_draw_button(fb, tp, rx + 24, ry + 402, 340, 52, "RESTART ADBD :5555", false, false);
+    fb_draw_button(fb, tp, rx + 380, ry + 402, 220, 52, "REFRESH", false, false);
 
     fb_fill_rect(fb, rx + 20, ry + 480, rw - 40, 2, tp->bar_border);
 
-    /* Power / System Actions */
     fb_draw_text(fb, rx + 24, ry + 502, "SYSTEM POWER", tp->accent, 2);
-    draw_btn(fb, tp, rx + 24,  ry + 544, 270, 58, "SLEEP SCREEN", false, false);
-    draw_btn(fb, tp, rx + 312, ry + 544, 270, 58,
-             st->confirm_action == 1 ? "CONFIRM REBOOT?" : "REBOOT", false, st->confirm_action == 1);
-    draw_btn(fb, tp, rx + 24,  ry + 620, 270, 58,
-             st->confirm_action == 2 ? "CONFIRM TWRP?" : "BOOT RECOVERY", false, st->confirm_action == 2);
-    draw_btn(fb, tp, rx + 312, ry + 620, 270, 58,
-             st->confirm_action == 3 ? "CONFIRM OFF?" : "POWER OFF", false, st->confirm_action == 3);
+    fb_draw_button(fb, tp, rx + 24,  ry + 544, 270, 58, "SLEEP SCREEN", false, false);
+    fb_draw_button(fb, tp, rx + 312, ry + 544, 270, 58,
+                   st->confirm_action == 1 ? "CONFIRM REBOOT?" : "REBOOT", false, st->confirm_action == 1);
+    fb_draw_button(fb, tp, rx + 24,  ry + 620, 270, 58,
+                   st->confirm_action == 2 ? "CONFIRM TWRP?" : "BOOT RECOVERY", false, st->confirm_action == 2);
+    fb_draw_button(fb, tp, rx + 312, ry + 620, 270, 58,
+                   st->confirm_action == 3 ? "CONFIRM OFF?" : "POWER OFF", false, st->confirm_action == 3);
 
     fb_draw_text(fb, rx + 24, ry + rh - 44, "E-TAB 5 BARE NOTE OS  |  LINUX 3.4.67 ARMV7", tp->bar_muted, 2);
 
     if (st->osk.open) {
-        render_osk(fb, tp, &st->osk);
+        osk_render_full(fb, theme, &st->osk);
     }
 }
 
-int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
-                        OskPurpose *out_purpose, char *out_text, size_t out_sz) {
+SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
+                                   OskPurpose *out_purpose, char *out_text, size_t out_sz) {
     if (st->osk.open) {
-        return handle_osk_tap(fb, st, x, y, out_purpose, out_text, out_sz);
+        OskPurpose p = OSK_NONE;
+        char text[128] = {0}, ssid[64] = {0};
+        SettingsAction act = osk_handle_tap(fb, &st->osk, x, y, &p, text, sizeof(text), ssid, sizeof(ssid));
+        if (act == SET_ACT_OSK_DONE) {
+            if (p == OSK_WIFI_PASS) {
+                settings_connect_wifi(st, ssid, text);
+                return SET_ACT_REDRAW;
+            }
+            if (out_purpose) *out_purpose = p;
+            if (out_text && out_sz > 0) snprintf(out_text, out_sz, "%s", text);
+        }
+        return act;
     }
     if (!st->open) return SET_ACT_NONE;
 
-    /* Header BACK */
-    if (hit_r(x, y, 14, 9, 130, 40)) {
+    if (hit_rect(x, y, 14, 9, 130, 40)) {
         st->open = false;
         st->confirm_action = 0;
         return SET_ACT_CLOSE;
@@ -622,13 +382,12 @@ int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
     int lx = 32, ly = TOOLBAR_H + 28, lw = 910, lh = fb->h - TOOLBAR_H - 56;
     int rx = 974, ry = ly, rw = fb->w - rx - 32;
 
-    /* Wi-Fi buttons */
-    if (hit_r(x, y, lx + 24, ly + 162, 190, 48)) {
+    if (hit_rect(x, y, lx + 24, ly + 162, 190, 48)) {
         st->confirm_action = 0;
         settings_scan_wifi(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, lx + 228, ly + 162, 210, 48)) {
+    if (hit_rect(x, y, lx + 228, ly + 162, 210, 48)) {
         char res[128];
         wpa_cmd("reconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "RECONNECTING...");
@@ -636,7 +395,7 @@ int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         settings_refresh(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, lx + 452, ly + 162, 220, 48)) {
+    if (hit_rect(x, y, lx + 452, ly + 162, 220, 48)) {
         char res[128];
         wpa_cmd("disconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "DISCONNECTED");
@@ -644,39 +403,37 @@ int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         return SET_ACT_REDRAW;
     }
 
-    /* Nearby Wi-Fi list */
     int ny = ly + 280;
     int max_nets = (ly + lh - ny - 16) / 62;
     for (int i = 0; i < st->net_count && i < max_nets; i++) {
-        if (hit_r(x, y, lx + 24, ny, lw - 48, 52)) {
+        if (hit_rect(x, y, lx + 24, ny, lw - 48, 52)) {
             st->confirm_action = 0;
             if (!st->nets[i].secured) {
-                connect_wifi_network(st, st->nets[i].ssid, "");
+                settings_connect_wifi(st, st->nets[i].ssid, "");
             } else {
                 char prompt[96];
                 snprintf(prompt, sizeof(prompt), "WIFI PASSWORD FOR %s:", st->nets[i].ssid);
-                settings_open_osk(st, OSK_WIFI_PASS, prompt, "", st->nets[i].ssid);
+                osk_open(&st->osk, OSK_WIFI_PASS, prompt, "", st->nets[i].ssid);
             }
             return SET_ACT_REDRAW;
         }
         ny += 62;
     }
 
-    /* Brightness controls */
-    if (hit_r(x, y, rx + 24, ry + 62, 74, 52)) {
+    if (hit_rect(x, y, rx + 24, ry + 62, 74, 52)) {
         int b = fb_get_backlight() - 25;
         if (b < 15) b = 15;
         fb_set_backlight(b);
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, rx + rw - 98, ry + 62, 74, 52)) {
+    if (hit_rect(x, y, rx + rw - 98, ry + 62, 74, 52)) {
         int b = fb_get_backlight() + 25;
         if (b > 255) b = 255;
         fb_set_backlight(b);
         return SET_ACT_REDRAW;
     }
     int bar_x = rx + 112, bar_y = ry + 62, bar_w = rw - 224, bar_h = 52;
-    if (hit_r(x, y, bar_x, bar_y, bar_w, bar_h)) {
+    if (hit_rect(x, y, bar_x, bar_y, bar_w, bar_h)) {
         int b = 15 + ((x - bar_x) * 240) / bar_w;
         if (b < 15) b = 15;
         if (b > 255) b = 255;
@@ -684,48 +441,37 @@ int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         return SET_ACT_REDRAW;
     }
 
-    /* Remote / ADB */
-    if (hit_r(x, y, rx + 24, ry + 402, 340, 52)) {
+    if (hit_rect(x, y, rx + 24, ry + 402, 340, 52)) {
         restart_adbd_tcp(st);
         settings_refresh(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, rx + 380, ry + 402, 220, 52)) {
+    if (hit_rect(x, y, rx + 380, ry + 402, 220, 52)) {
         settings_refresh(st);
         snprintf(st->status_msg, sizeof(st->status_msg), "STATUS REFRESHED");
         return SET_ACT_REDRAW;
     }
 
-    /* System Power Actions */
-    if (hit_r(x, y, rx + 24, ry + 544, 270, 58)) {
+    if (hit_rect(x, y, rx + 24, ry + 544, 270, 58)) {
         st->confirm_action = 0;
         return SET_ACT_SLEEP;
     }
-    if (hit_r(x, y, rx + 312, ry + 544, 270, 58)) {
-        if (st->confirm_action != 1) {
-            st->confirm_action = 1;
-            return SET_ACT_REDRAW;
-        }
+    if (hit_rect(x, y, rx + 312, ry + 544, 270, 58)) {
+        if (st->confirm_action != 1) { st->confirm_action = 1; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", NULL };
         run_cmd_capture(argv, out, sizeof(out));
         return SET_ACT_NONE;
     }
-    if (hit_r(x, y, rx + 24, ry + 620, 270, 58)) {
-        if (st->confirm_action != 2) {
-            st->confirm_action = 2;
-            return SET_ACT_REDRAW;
-        }
+    if (hit_rect(x, y, rx + 24, ry + 620, 270, 58)) {
+        if (st->confirm_action != 2) { st->confirm_action = 2; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", (char *)"recovery", NULL };
         run_cmd_capture(argv, out, sizeof(out));
         return SET_ACT_NONE;
     }
-    if (hit_r(x, y, rx + 312, ry + 620, 270, 58)) {
-        if (st->confirm_action != 3) {
-            st->confirm_action = 3;
-            return SET_ACT_REDRAW;
-        }
+    if (hit_rect(x, y, rx + 312, ry + 620, 270, 58)) {
+        if (st->confirm_action != 3) { st->confirm_action = 3; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", (char *)"-p", NULL };
         run_cmd_capture(argv, out, sizeof(out));

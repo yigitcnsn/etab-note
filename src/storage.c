@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "noteos.h"
+#include "storage.h"
 
 #include <ctype.h>
 #include <dirent.h>
