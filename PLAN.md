@@ -21,7 +21,8 @@ Turn a General Mobile E-Tab 5 (MediaTek MT8392 / ARMv7, 10.1" 1920×1200 IPS, Wa
 
 ## Phases
 - [x] **Phase 0 — Discovery & Setup:** Connect via ADB, verify root/hardware/battery, create repo & command log.
-- [ ] **Phase 1 — Backup & Hardware Probe:** Dump `bootimg` & `recovery`, read exact Wacom axis/pressure ranges, framebuffer layout (`FBIOGET_VSCREENINFO`), and backlight/sleep sysfs nodes. Install `zig` for static `arm-linux-musleabihf` cross-compilation.
-- [ ] **Phase 2 — Live Prototype (No Flashing):** Pause Android (`stop`), run static ARMv7 prototype on `/dev/graphics/fb0` + `/dev/input/event1` to tune ink, pressure, eraser, palm rejection, and UI.
-- [ ] **Phase 3 — v1 Note + HA App:** Notebooks/pages, storage, Pi sync, native HA controls, power/sleep management.
-- [ ] **Phase 4 — Standalone OS Flash:** Repack stock kernel + minimal static Linux initramfs into a new `bootimg` and flash `bootimg` only (leaving `recovery`/TWRP untouched).
+- [x] **Phase 1 — Backup & Hardware Probe:** Dump `bootimg` & `recovery`, read exact Wacom axis/pressure ranges, framebuffer layout (`FBIOGET_VSCREENINFO`), and backlight/sleep sysfs nodes. Install `zig` for static `arm-linux-musleabihf` cross-compilation.
+- [x] **Phase 2 — Live Prototype (No Flashing):** Pause Android (`stop`), run static ARMv7 prototype on `/dev/graphics/fb0` + `/dev/input/event1` to tune ink, pressure, eraser, palm rejection, and UI.
+- [x] **Phase 3 — v1 Note App & OS Settings:** Notebooks/folders/pages, stylus radial menu, brush/pencil/highlighter, Wi-Fi/OS settings & on-screen keyboard, power/sleep management.
+- [x] **Phase 4 — Standalone OS Flash:** Repack stock kernel + minimal static Linux initramfs into a new `bootimg` and flash `bootimg` only (leaving `recovery`/TWRP untouched).
+- [ ] **Phase 5 — Pi Sync, Engram Bridge & Home Assistant:** Always-on Pi note sync, macOS iCloud/PencilKit bridge, and lightweight native Home Assistant controls.

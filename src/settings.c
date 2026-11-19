@@ -210,6 +210,10 @@ static void connect_wifi_network(SettingsState *st, const char *ssid, const char
     wpa_cmd("save_config", NULL, NULL, NULL, res, sizeof(res));
     snprintf(st->status_msg, sizeof(st->status_msg), "CONNECTING TO %s...", ssid);
     usleep(800000);
+    if (access("/sbin/noteos-dhcp", X_OK) == 0) {
+        char *da[] = { (char *)"/sbin/noteos-dhcp", (char *)"wlan0", (char *)"--once", NULL };
+        run_cmd_capture(da, res, sizeof(res));
+    }
     settings_refresh(st);
 }
 

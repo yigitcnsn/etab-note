@@ -202,3 +202,28 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   git -C /Volumes/X/developer/etab5-noteos add .
   git -C /Volumes/X/developer/etab5-noteos commit -m "Initial commit: E-Tab 5 bare Linux Note OS v1.2"
   ```
+
+---
+
+## 2026-11-19 — Phase 4: Standalone Bare Note OS (`bootimg` Flash)
+
+### Step 17: Build static DHCPv4 client (`src/dhcpc.c`) & standalone `bootimg_noteos.img`
+- **Discovery:**
+  - Inspected `backups/bootimg.img`: Android v0 boot image (`page_size=2048`) with 512-byte MediaTek `KERNEL` and `ROOTFS` headers (`88 16 88 58`).
+  - Verified `/system/etc/init/` defines `surfaceflinger` & `bootanim` in `class core`, and Android 7.1.2 has no standalone `dhcpcd` binary.
+- **Changes:**
+  - `src/dhcpc.c`: Wrote 28 KB static RFC 2131 DHCPv4 client daemon (`build/noteos-dhcp`), live-tested on `wlan0` (`leased 192.168.1.188 gw 192.168.1.1`).
+  - `Makefile`: Added `-s` stripping (`build/noteos` = `131 KB`, `build/noteos-dhcp` = `28 KB`) and `bootimg` target.
+  - `scripts/build_bootimg.py`: Pure-Python `newc` CPIO editor that preserves stock kernel & all Linux permissions, sets `ro.adb.secure=0` + `service.adb.tcp.port=5555` + `persist.sys.usb.config=adb`, disables 100% of Android (`zygote`, `surfaceflinger`, `bootanim`, `main`, `late_start`), and adds `/sbin/noteos`, `/sbin/noteos-dhcp`, `/sbin/noteos_run.sh`, `/sbin/noteos_wifi.sh`.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos bootimg
+  adb push backups/bootimg.img /data/local/tmp/stock_bootimg.img
+  adb push build/bootimg_noteos.img /data/local/tmp/bootimg_noteos.img
+  adb shell "su -c 'mv /data/local/tmp/stock_bootimg.img /data/noteos/stock_bootimg.img'"
+  adb shell "su -c 'dd if=/data/local/tmp/bootimg_noteos.img of=/dev/bootimg bs=4096 && sync && dd if=/dev/bootimg bs=2048 count=3005 2>/dev/null | sha256sum && rm -f /data/local/tmp/bootimg_noteos.img'"
+  adb shell "su -c reboot"
+  ```
+- **Result:**
+  - `build/bootimg_noteos.img`: `6154240` bytes (`58.7%` of 10 MB partition), SHA-256 `afb930bb30a4433db8c25263cbc4eb68991472caca3b724364c33e6a2142c7d4` — verified byte-for-byte after flashing to `/dev/bootimg`.
+  - TWRP in `/dev/recovery` left untouched; stock `bootimg.img` backed up both on Mac and `/data/noteos/stock_bootimg.img`.
