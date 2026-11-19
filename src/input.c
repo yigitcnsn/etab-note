@@ -2,6 +2,7 @@
 #include "input.h"
 #include "drop.h"
 #include "fb.h"
+#include "md.h"
 #include "mdns.h"
 #include "osk.h"
 #include "prefs.h"
@@ -15,6 +16,7 @@
 #include <linux/input.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <time.h>
@@ -225,15 +227,21 @@ static void handle_drop_event(App *app, const DropEvent *ev) {
             app->toast_until = time(NULL) + 4;
         }
     } else if (ev->kind == DROP_TEXT) {
-        float y = (float)(TOOLBAR_H + 96 + (int)(pg->text_count % 6) * 86);
-        if (page_add_text(pg, 220.0f, y, 560.0f, 2, ev->text)) {
-            app->selected_img = -1;
-            app->selected_text = (int)pg->text_count - 1;
-            app->obj_edit_mode = true;
-            app->doc.dirty = true;
-            app_save_current(app);
-            snprintf(app->toast_msg, sizeof(app->toast_msg), "TEXT BOX DROPPED! DRAG OR TAP EDIT");
-            app->toast_until = time(NULL) + 4;
+        if (app->md.active) {
+            md_append_line(&app->md, STORAGE_DIR, ev->text);
+            snprintf(app->toast_msg, sizeof(app->toast_msg), "APPENDED TEXT TO MARKDOWN NOTE!");
+            app->toast_until = time(NULL) + 3;
+        } else {
+            float y = (float)(TOOLBAR_H + 96 + (int)(pg->text_count % 6) * 86);
+            if (page_add_text(pg, 220.0f, y, 560.0f, 2, ev->text)) {
+                app->selected_img = -1;
+                app->selected_text = (int)pg->text_count - 1;
+                app->obj_edit_mode = true;
+                app->doc.dirty = true;
+                app_save_current(app);
+                snprintf(app->toast_msg, sizeof(app->toast_msg), "TEXT BOX DROPPED! DRAG OR TAP EDIT");
+                app->toast_until = time(NULL) + 4;
+            }
         }
     }
     if (!app->sleeping) app_redraw_all(app);
@@ -275,18 +283,42 @@ static bool handle_touch(App *app) {
             if (app->touch_down && !app->touch_was_down && !app->tool_pen && !app->tool_rubber) {
                 if (ui_handle_tap(app, app->touch_x, app->touch_y)) {
                     need_present = true;
-                } else if (app->touch_y >= TOOLBAR_H && app->touch_x >= app_canvas_clip_x0(app)) {
-                    /* Finger tap on any placed image or text box selects & drags it immediately! */
+                } else if (app->md.active && app->touch_y >= TOOLBAR_H && app->touch_x >= app_canvas_clip_x0(app)) {
+                    app->md_dragging = true;
+                    app->md_drag_start_y = app->touch_y;
+                    app->md_drag_last_y = app->touch_y;
+                    app->md_drag_moved = false;
+                } else if (!app->md.active && app->touch_y >= TOOLBAR_H && app->touch_x >= app_canvas_clip_x0(app)) {
                     if (handle_obj_down(app, (float)app->touch_x, (float)app->touch_y)) {
                         need_present = true;
                     }
                 }
+            } else if (app->touch_down && app->md_dragging) {
+                int dy = app->md_drag_last_y - app->touch_y;
+                if (abs(app->touch_y - app->md_drag_start_y) > 12) app->md_drag_moved = true;
+                if (app->md_drag_moved && dy != 0) {
+                    md_scroll(&app->md, dy, app->fb.h - TOOLBAR_H);
+                    app->md_drag_last_y = app->touch_y;
+                    pending_drag = true;
+                }
             } else if (app->touch_down && app->obj_drag != OBJ_DRAG_NONE) {
-                /* Coalesce move events — only redraw once after draining input queue! */
                 drag_x = (float)app->touch_x;
                 drag_y = (float)app->touch_y;
                 pending_drag = true;
             } else if (!app->touch_down && app->touch_was_down) {
+                if (app->md_dragging) {
+                    app->md_dragging = false;
+                    if (!app->md_drag_moved) {
+                        if (md_toggle_checkbox_at(&app->md, STORAGE_DIR, app->touch_x, app->touch_y)) {
+                            app_redraw_all(app);
+                            need_present = true;
+                        }
+                    } else if (pending_drag) {
+                        app_redraw_all(app);
+                        need_present = true;
+                        pending_drag = false;
+                    }
+                }
                 if (pending_drag) {
                     if (apply_obj_drag(app, drag_x, drag_y)) need_present = true;
                     pending_drag = false;
@@ -305,7 +337,12 @@ static bool handle_touch(App *app) {
     }
 
     if (pending_drag) {
-        if (apply_obj_drag(app, drag_x, drag_y)) need_present = true;
+        if (app->md.active) {
+            app_redraw_all(app);
+            need_present = true;
+        } else if (apply_obj_drag(app, drag_x, drag_y)) {
+            need_present = true;
+        }
     }
     return need_present;
 }
@@ -348,6 +385,22 @@ static bool handle_stylus(App *app) {
                 } else if (!down && app->pen_was_down && app->settings.osk.open) {
                     osk_release(&app->fb, (ThemeKind)app->doc.theme, &app->settings.osk);
                     need_present = true;
+                }
+                app->pen_was_down = down;
+                app->btn_stylus_prev = app->btn_stylus;
+                continue;
+            }
+
+            /* Markdown reader mode: stylus taps toolbar, sidebar, or toggles checkboxes */
+            if (app->md.active) {
+                if (down && !app->pen_was_down) {
+                    if (sy < TOOLBAR_H || (app->sidebar_open && sx < SIDEBAR_W)) {
+                        ui_handle_tap(app, (int)sx, (int)sy);
+                        need_present = true;
+                    } else if (md_toggle_checkbox_at(&app->md, STORAGE_DIR, (int)sx, (int)sy)) {
+                        app_redraw_all(app);
+                        need_present = true;
+                    }
                 }
                 app->pen_was_down = down;
                 app->btn_stylus_prev = app->btn_stylus;

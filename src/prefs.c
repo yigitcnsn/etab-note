@@ -18,8 +18,13 @@ void prefs_save(const App *app) {
     fprintf(f, "color=%d\n", (int)app->color_idx);
     fprintf(f, "size=%d\n", (int)app->size_idx);
     fprintf(f, "brightness=%d\n", fb_get_backlight());
-    fprintf(f, "folder=%s\n", app->doc.folder);
-    fprintf(f, "note=%s\n", app->doc.id);
+    if (app->md.active) {
+        fprintf(f, "folder=%s\n", app->md.folder);
+        fprintf(f, "note=%s\n", app->md.filename);
+    } else {
+        fprintf(f, "folder=%s\n", app->doc.folder);
+        fprintf(f, "note=%s\n", app->doc.id);
+    }
 
     fflush(f);
     fsync(fileno(f));

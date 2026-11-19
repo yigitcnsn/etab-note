@@ -26,14 +26,17 @@ void doc_init_new(NoteDoc *doc, const char *folder, const char *id, const char *
 void doc_free(NoteDoc *doc);
 
 int  storage_init(const char *root_dir);
-int  storage_list_folders(const char *root_dir, FolderMeta *out, int max_folders);
-bool storage_create_folder(const char *root_dir, const char *display_name,
-                           char *name_out, size_t name_sz);
-bool storage_rename_folder(const char *root_dir, const char *old_name, const char *new_display,
-                           char *new_name_out, size_t new_name_sz);
+int  storage_list_folders(const char *root_dir, const char *parent_folder,
+                          FolderMeta *out, int max_folders);
+bool storage_create_folder(const char *root_dir, const char *parent_folder,
+                           const char *display_name, char *name_out, size_t name_sz);
+bool storage_rename_folder(const char *root_dir, const char *old_rel_path,
+                           const char *new_display, char *new_rel_out, size_t new_rel_sz);
 bool storage_delete_folder(const char *root_dir, const char *folder);
 
 int  storage_list(const char *root_dir, const char *folder, NoteMeta *out, int max_notes);
+int  storage_list_md(const char *root_dir, const char *folder, MdMeta *out, int max_md);
+bool storage_delete_md(const char *root_dir, const char *folder, const char *filename);
 bool storage_save(const char *root_dir, const NoteDoc *doc);
 bool storage_load(const char *root_dir, const char *folder, const char *id, NoteDoc *doc);
 bool storage_move_note(const char *root_dir, const char *old_folder, const char *id,

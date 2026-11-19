@@ -17,7 +17,8 @@ SRCS    := src/main.c \
            src/ui.c \
            src/input.c \
            src/mdns.c \
-           src/drop.c
+           src/drop.c \
+           src/md.c
 
 OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS)) $(OBJ_DIR)/stb_impl.o
 DEPS    := $(OBJS:.o=.d)

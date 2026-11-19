@@ -64,6 +64,7 @@ int main(void) {
     app_finish_active_stroke(&app);
     app_save_current(&app);
     prefs_save(&app);
+    md_free(&app.md);
     doc_free(&app.doc);
     drop_close(&app.drop);
     mdns_close(&app.mdns);

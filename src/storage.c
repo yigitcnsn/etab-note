@@ -408,14 +408,26 @@ int storage_init(const char *root_dir) {
     return mkdir_p(root_dir);
 }
 
-static int count_notes_in(const char *dir_path) {
+static int count_items_in(const char *dir_path) {
     DIR *d = opendir(dir_path);
     if (!d) return 0;
     int c = 0;
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
         size_t len = strlen(ent->d_name);
-        if (len > 6 && strcmp(ent->d_name + len - 6, ".enote") == 0) c++;
+        if ((len > 6 && strcmp(ent->d_name + len - 6, ".enote") == 0) ||
+            (len > 3 && strcmp(ent->d_name + len - 3, ".md") == 0)) {
+            c++;
+            continue;
+        }
+        char sub[512];
+        snprintf(sub, sizeof(sub), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(sub, &st) == 0 && S_ISDIR(st.st_mode)) {
+            if (len > 8 && strcmp(ent->d_name + len - 8, ".drawing") == 0) continue;
+            c++;
+        }
     }
     closedir(d);
     return c;
@@ -424,29 +436,32 @@ static int count_notes_in(const char *dir_path) {
 static int cmp_folder(const void *a, const void *b) {
     const FolderMeta *fa = (const FolderMeta *)a;
     const FolderMeta *fb = (const FolderMeta *)b;
-    return strcmp(fa->name, fb->name);
+    return strcasecmp(fa->display, fb->display);
 }
 
-int storage_list_folders(const char *root_dir, FolderMeta *out, int max_folders) {
-    DIR *d = opendir(root_dir);
+int storage_list_folders(const char *root_dir, const char *parent_folder,
+                         FolderMeta *out, int max_folders) {
+    char dir_path[512];
+    build_dir_path(dir_path, sizeof(dir_path), root_dir, parent_folder);
+    DIR *d = opendir(dir_path);
     if (!d) return 0;
     int n = 0;
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL && n < max_folders) {
         if (ent->d_name[0] == '.') continue;
+        size_t len = strlen(ent->d_name);
+        if (len > 8 && strcmp(ent->d_name + len - 8, ".drawing") == 0) continue;
         char full[512];
-        snprintf(full, sizeof(full), "%s/%s", root_dir, ent->d_name);
+        snprintf(full, sizeof(full), "%s/%s", dir_path, ent->d_name);
         struct stat st;
         if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
             snprintf(out[n].name, sizeof(out[n].name), "%s", ent->d_name);
-            /* Pretty display name: replace '_' with ' ' and uppercase */
             size_t j = 0;
             for (; ent->d_name[j] && j + 1 < sizeof(out[n].display); j++) {
-                char c = ent->d_name[j];
-                out[n].display[j] = (c == '_') ? ' ' : (char)toupper((unsigned char)c);
+                out[n].display[j] = (ent->d_name[j] == '_') ? ' ' : ent->d_name[j];
             }
             out[n].display[j] = '\0';
-            out[n].note_count = count_notes_in(full);
+            out[n].item_count = count_items_in(full);
             n++;
         }
     }
@@ -459,53 +474,96 @@ static void sanitize_folder_name(const char *in, char *out, size_t sz) {
     size_t j = 0;
     for (size_t i = 0; in && in[i] && j + 1 < sz; i++) {
         unsigned char c = (unsigned char)in[i];
-        if (isalnum(c) || c == '-' || c == '_') {
+        if (isalnum(c) || c == '-' || c == '_' || c == ' ') {
             out[j++] = (char)c;
-        } else if (c == ' ') {
-            out[j++] = '_';
         }
     }
-    while (j > 0 && out[j - 1] == '_') j--;
+    while (j > 0 && out[j - 1] == ' ') j--;
     out[j] = '\0';
 }
 
-bool storage_create_folder(const char *root_dir, const char *display_name, char *name_out, size_t name_sz) {
+bool storage_create_folder(const char *root_dir, const char *parent_folder,
+                           const char *display_name, char *name_out, size_t name_sz) {
     char name[64] = {0};
     sanitize_folder_name(display_name, name, sizeof(name));
     if (name[0] == '\0') {
         FolderMeta folders[MAX_FOLDERS];
-        int n = storage_list_folders(root_dir, folders, MAX_FOLDERS);
-        int max_num = 0;
-        for (int i = 0; i < n; i++) {
-            int num = 0;
-            if (sscanf(folders[i].name, "folder_%d", &num) == 1 && num > max_num) {
-                max_num = num;
-            }
-        }
-        snprintf(name, sizeof(name), "folder_%02d", max_num + 1);
+        int n = storage_list_folders(root_dir, parent_folder, folders, MAX_FOLDERS);
+        snprintf(name, sizeof(name), "Folder %d", n + 1);
     }
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%s", root_dir, name);
+    char parent_path[512], path[640];
+    build_dir_path(parent_path, sizeof(parent_path), root_dir, parent_folder);
+    snprintf(path, sizeof(path), "%s/%s", parent_path, name);
     if (mkdir(path, 0755) != 0 && errno != EEXIST) return false;
     if (name_out && name_sz > 0) snprintf(name_out, name_sz, "%s", name);
     return true;
 }
 
-bool storage_rename_folder(const char *root_dir, const char *old_name, const char *new_display,
-                           char *new_name_out, size_t new_name_sz) {
-    if (!old_name || !old_name[0]) return false;
+bool storage_rename_folder(const char *root_dir, const char *old_rel_path,
+                           const char *new_display, char *new_rel_out, size_t new_rel_sz) {
+    if (!old_rel_path || !old_rel_path[0]) return false;
     char clean[64] = {0};
     sanitize_folder_name(new_display, clean, sizeof(clean));
-    if (clean[0] == '\0' || strcmp(clean, old_name) == 0) return false;
+    if (clean[0] == '\0') return false;
+
+    char parent[256] = {0};
+    const char *slash = strrchr(old_rel_path, '/');
+    if (slash) {
+        size_t plen = (size_t)(slash - old_rel_path);
+        if (plen >= sizeof(parent)) plen = sizeof(parent) - 1;
+        memcpy(parent, old_rel_path, plen);
+        parent[plen] = '\0';
+    }
+
+    char new_rel[256];
+    if (parent[0]) snprintf(new_rel, sizeof(new_rel), "%s/%s", parent, clean);
+    else snprintf(new_rel, sizeof(new_rel), "%s", clean);
+    if (strcmp(new_rel, old_rel_path) == 0) return false;
 
     char old_path[512], new_path[512];
-    snprintf(old_path, sizeof(old_path), "%s/%s", root_dir, old_name);
-    snprintf(new_path, sizeof(new_path), "%s/%s", root_dir, clean);
+    snprintf(old_path, sizeof(old_path), "%s/%s", root_dir, old_rel_path);
+    snprintf(new_path, sizeof(new_path), "%s/%s", root_dir, new_rel);
     struct stat st;
-    if (stat(new_path, &st) == 0) return false; /* already exists */
+    if (stat(new_path, &st) == 0) return false;
     if (rename(old_path, new_path) != 0) return false;
-    if (new_name_out && new_name_sz > 0) snprintf(new_name_out, new_name_sz, "%s", clean);
+    if (new_rel_out && new_rel_sz > 0) snprintf(new_rel_out, new_rel_sz, "%s", new_rel);
     return true;
+}
+
+static int cmp_md(const void *a, const void *b) {
+    const MdMeta *ma = (const MdMeta *)a;
+    const MdMeta *mb = (const MdMeta *)b;
+    return strcasecmp(ma->title, mb->title);
+}
+
+int storage_list_md(const char *root_dir, const char *folder, MdMeta *out, int max_md) {
+    char dir_path[512];
+    build_dir_path(dir_path, sizeof(dir_path), root_dir, folder);
+    DIR *d = opendir(dir_path);
+    if (!d) return 0;
+    int n = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL && n < max_md) {
+        if (ent->d_name[0] == '.') continue;
+        size_t len = strlen(ent->d_name);
+        if (len <= 3 || strcmp(ent->d_name + len - 3, ".md") != 0) continue;
+        snprintf(out[n].filename, sizeof(out[n].filename), "%s", ent->d_name);
+        size_t tlen = len - 3;
+        if (tlen >= sizeof(out[n].title)) tlen = sizeof(out[n].title) - 1;
+        memcpy(out[n].title, ent->d_name, tlen);
+        out[n].title[tlen] = '\0';
+        n++;
+    }
+    closedir(d);
+    if (n > 1) qsort(out, (size_t)n, sizeof(MdMeta), cmp_md);
+    return n;
+}
+
+bool storage_delete_md(const char *root_dir, const char *folder, const char *filename) {
+    char dir_path[512], path[640];
+    build_dir_path(dir_path, sizeof(dir_path), root_dir, folder);
+    snprintf(path, sizeof(path), "%s/%s", dir_path, filename);
+    return unlink(path) == 0;
 }
 
 bool storage_delete_folder(const char *root_dir, const char *folder) {

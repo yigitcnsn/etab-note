@@ -107,7 +107,7 @@ typedef struct {
 } Page;
 
 typedef struct {
-    char folder[64];
+    char folder[256];
     char id[64];
     char title[64];
     uint8_t paper;
@@ -125,9 +125,14 @@ typedef struct {
 } NoteMeta;
 
 typedef struct {
-    char name[64];
-    char display[64];
-    int note_count;
+    char filename[128];
+    char title[128];
+} MdMeta;
+
+typedef struct {
+    char name[128];
+    char display[128];
+    int item_count;
 } FolderMeta;
 
 typedef struct {
@@ -170,7 +175,10 @@ typedef enum {
     OSK_NEW_FOLDER    = 4,
     OSK_RENAME_FOLDER = 5,
     OSK_NEW_TEXTBOX   = 6,
-    OSK_EDIT_TEXTBOX  = 7
+    OSK_EDIT_TEXTBOX  = 7,
+    OSK_NEW_MD        = 8,
+    OSK_MD_ADD_TASK   = 9,
+    OSK_MD_ADD_LINE   = 10
 } OskPurpose;
 
 typedef struct {

@@ -2,6 +2,7 @@
 #define NOTEOS_APP_H
 
 #include "drop.h"
+#include "md.h"
 #include "mdns.h"
 #include "types.h"
 #include <time.h>
@@ -15,13 +16,17 @@ typedef enum {
 typedef struct {
     FB fb;
     NoteDoc doc;
+    MdDoc md;
 
-    /* Folder browser state */
-    char cur_folder[64];
+    /* Nested folder browser state */
+    char cur_folder[256];
     FolderMeta folders[MAX_FOLDERS];
     int folder_count;
+    MdMeta md_notes[MAX_NOTES];
+    int md_count;
     NoteMeta notes[MAX_NOTES];
     int note_count;
+    int sidebar_scroll;
 
     /* UI flags */
     bool sidebar_open;
@@ -32,6 +37,10 @@ typedef struct {
     ObjDragMode obj_drag;
     float drag_off_x, drag_off_y;
     float drag_aspect;
+    bool md_dragging;
+    int md_drag_start_y;
+    int md_drag_last_y;
+    bool md_drag_moved;
     char toast_msg[64];
     time_t toast_until;
     bool confirm_delete;
@@ -52,8 +61,8 @@ typedef struct {
     /* Persisted preferences */
     PaperKind pref_paper;
     ThemeKind pref_theme;
-    char pref_folder[64];
-    char pref_note[64];
+    char pref_folder[256];
+    char pref_note[128];
 
     /* Overlays */
     RadialMenu radial;

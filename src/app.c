@@ -16,19 +16,23 @@ int app_canvas_clip_x0(const App *app) {
 }
 
 void app_pretty_folder_name(const char *name, char *out, size_t sz) {
+    const char *base = strrchr(name, '/');
+    const char *src = base ? (base + 1) : name;
     size_t i = 0;
-    for (; name[i] && i + 1 < sz; i++) {
-        out[i] = (name[i] == '_') ? ' ' : (char)toupper((unsigned char)name[i]);
+    for (; src[i] && i + 1 < sz; i++) {
+        out[i] = (src[i] == '_') ? ' ' : src[i];
     }
     out[i] = '\0';
 }
 
 void app_refresh_browser(App *app) {
-    app->folder_count = storage_list_folders(STORAGE_DIR, app->folders, MAX_FOLDERS);
+    app->folder_count = storage_list_folders(STORAGE_DIR, app->cur_folder, app->folders, MAX_FOLDERS);
+    app->md_count = storage_list_md(STORAGE_DIR, app->cur_folder, app->md_notes, MAX_NOTES);
     app->note_count = storage_list(STORAGE_DIR, app->cur_folder, app->notes, MAX_NOTES);
 }
 
 void app_save_current(App *app) {
+    if (app->md.active) return;
     if (app->doc.dirty) {
         if (storage_save(STORAGE_DIR, &app->doc)) {
             app->doc.dirty = false;
@@ -38,23 +42,42 @@ void app_save_current(App *app) {
 }
 
 void app_open_or_create_first_note(App *app) {
-    if (app->pref_note[0] &&
-        storage_load(STORAGE_DIR, app->pref_folder, app->pref_note, &app->doc)) {
-        snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", app->pref_folder);
-        app->doc.theme = (uint8_t)app->pref_theme;
-        app->doc.paper = (uint8_t)app->pref_paper;
-        app_refresh_browser(app);
-        return;
+    if (app->pref_note[0]) {
+        size_t len = strlen(app->pref_note);
+        if (len > 3 && strcmp(app->pref_note + len - 3, ".md") == 0) {
+            if (md_load(&app->md, STORAGE_DIR, app->pref_folder, app->pref_note)) {
+                snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", app->pref_folder);
+                app->doc.theme = (uint8_t)app->pref_theme;
+                app->doc.paper = (uint8_t)app->pref_paper;
+                app_refresh_browser(app);
+                return;
+            }
+        } else if (storage_load(STORAGE_DIR, app->pref_folder, app->pref_note, &app->doc)) {
+            md_free(&app->md);
+            snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", app->pref_folder);
+            app->doc.theme = (uint8_t)app->pref_theme;
+            app->doc.paper = (uint8_t)app->pref_paper;
+            app_refresh_browser(app);
+            return;
+        }
     }
     app_refresh_browser(app);
     if (app->note_count > 0 &&
         storage_load(STORAGE_DIR, app->cur_folder, app->notes[0].id, &app->doc)) {
+        md_free(&app->md);
+        app->doc.theme = (uint8_t)app->pref_theme;
+        app->doc.paper = (uint8_t)app->pref_paper;
+        return;
+    }
+    if (app->md_count > 0 &&
+        md_load(&app->md, STORAGE_DIR, app->cur_folder, app->md_notes[0].filename)) {
         app->doc.theme = (uint8_t)app->pref_theme;
         app->doc.paper = (uint8_t)app->pref_paper;
         return;
     }
     char id[64], title[64];
     storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), title, sizeof(title));
+    md_free(&app->md);
     doc_init_new(&app->doc, app->cur_folder, id, title, app->pref_paper, app->pref_theme);
     storage_save(STORAGE_DIR, &app->doc);
     app->doc.dirty = false;
@@ -80,7 +103,11 @@ void app_redraw_all(App *app) {
         settings_render(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
         return;
     }
-    render_page(&app->fb, &app->doc, app_canvas_clip_x0(app), app->selected_img, app->selected_text);
+    if (app->md.active) {
+        md_render(&app->fb, (ThemeKind)app->doc.theme, &app->md, app_canvas_clip_x0(app));
+    } else {
+        render_page(&app->fb, &app->doc, app_canvas_clip_x0(app), app->selected_img, app->selected_text);
+    }
     ui_draw_sidebar(app);
     ui_draw_toolbar(app);
     if (app->toast_msg[0] && time(NULL) <= app->toast_until) {
