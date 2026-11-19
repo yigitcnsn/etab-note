@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 #define ENOTE_MAGIC   0x454E4F54u /* "ENOT" */
-#define ENOTE_VERSION 2u
+#define ENOTE_VERSION 3u
 
 typedef struct {
     char filename[64];
@@ -22,6 +22,12 @@ typedef struct {
 
 typedef struct {
     float x, y;
+    int32_t scale;
+    char text[256];
+} EnoteTextRecV2;
+
+typedef struct {
+    float x, y, w, h;
     int32_t scale;
     char text[256];
 } EnoteTextRec;
@@ -241,7 +247,35 @@ void page_remove_image(Page *pg, size_t idx) {
     pg->img_count--;
 }
 
-bool page_add_text(Page *pg, float x, float y, int scale, const char *text) {
+void page_text_recalc_height(PageText *pt) {
+    int scale = pt->scale > 0 ? pt->scale : 2;
+    if (pt->w < 180.0f) pt->w = 180.0f;
+    int char_w = 6 * scale;
+    int inner_w = (int)pt->w - 28;
+    int max_cols = inner_w / char_w;
+    if (max_cols < 6) max_cols = 6;
+
+    int lines = 1;
+    int col = 0;
+    for (const char *p = pt->text; *p; p++) {
+        if (*p == '\n') {
+            lines++;
+            col = 0;
+        } else {
+            col++;
+            if (col >= max_cols) {
+                lines++;
+                col = 0;
+            }
+        }
+    }
+    int line_h = 7 * scale + 10;
+    float h = (float)(lines * line_h + 28);
+    if (h < 68.0f) h = 68.0f;
+    pt->h = h;
+}
+
+bool page_add_text(Page *pg, float x, float y, float w, int scale, const char *text) {
     if (pg->text_count >= MAX_PAGE_TEXTS || !text || !text[0]) return false;
     if (pg->text_count >= pg->text_cap) {
         size_t ncap = pg->text_cap ? pg->text_cap * 2 : 8;
@@ -254,9 +288,20 @@ bool page_add_text(Page *pg, float x, float y, int scale, const char *text) {
     memset(pt, 0, sizeof(*pt));
     pt->x = x;
     pt->y = y;
+    pt->w = (w >= 180.0f) ? w : 520.0f;
     pt->scale = scale > 0 ? scale : 2;
     snprintf(pt->text, sizeof(pt->text), "%s", text);
+    page_text_recalc_height(pt);
     return true;
+}
+
+void page_remove_text(Page *pg, size_t idx) {
+    if (idx >= pg->text_count) return;
+    if (idx + 1 < pg->text_count) {
+        memmove(&pg->texts[idx], &pg->texts[idx + 1],
+                (pg->text_count - idx - 1) * sizeof(PageText));
+    }
+    pg->text_count--;
 }
 
 static float point_seg_dist2(float px, float py, float ax, float ay, float bx, float by) {
@@ -576,6 +621,8 @@ bool storage_save(const char *root_dir, const NoteDoc *doc) {
             memset(&trec, 0, sizeof(trec));
             trec.x = doc->pages[p].texts[t].x;
             trec.y = doc->pages[p].texts[t].y;
+            trec.w = doc->pages[p].texts[t].w;
+            trec.h = doc->pages[p].texts[t].h;
             trec.scale = doc->pages[p].texts[t].scale;
             snprintf(trec.text, sizeof(trec.text), "%s", doc->pages[p].texts[t].text);
             if (fwrite(&trec, sizeof(trec), 1, f) != 1) goto fail;
@@ -606,7 +653,7 @@ bool storage_load(const char *root_dir, const char *folder, const char *id, Note
 
     EnoteHeader hdr;
     if (fread(&hdr, sizeof(hdr), 1, f) != 1 || hdr.magic != ENOTE_MAGIC ||
-        (hdr.version != 1u && hdr.version != ENOTE_VERSION)) {
+        hdr.version < 1u || hdr.version > ENOTE_VERSION) {
         fclose(f);
         return false;
     }
@@ -660,9 +707,15 @@ bool storage_load(const char *root_dir, const char *folder, const char *id, Note
             uint32_t tc = 0;
             if (fread(&tc, sizeof(tc), 1, f) == 1 && tc <= MAX_PAGE_TEXTS) {
                 for (uint32_t t = 0; t < tc; t++) {
-                    EnoteTextRec trec;
-                    if (fread(&trec, sizeof(trec), 1, f) != 1) break;
-                    page_add_text(&doc->pages[p], trec.x, trec.y, trec.scale, trec.text);
+                    if (hdr.version == 2u) {
+                        EnoteTextRecV2 trec;
+                        if (fread(&trec, sizeof(trec), 1, f) != 1) break;
+                        page_add_text(&doc->pages[p], trec.x, trec.y, 520.0f, trec.scale, trec.text);
+                    } else {
+                        EnoteTextRec trec;
+                        if (fread(&trec, sizeof(trec), 1, f) != 1) break;
+                        page_add_text(&doc->pages[p], trec.x, trec.y, trec.w, trec.scale, trec.text);
+                    }
                 }
             }
         }

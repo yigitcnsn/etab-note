@@ -217,39 +217,82 @@ static void render_page_image(FB *fb, ThemeKind theme, PageImage *im, int clip_x
     }
 }
 
-static void render_page_text(FB *fb, ThemeKind theme, const PageText *pt, int clip_x0) {
+static void render_page_text(FB *fb, ThemeKind theme, PageText *pt, int clip_x0, bool selected) {
     const ThemePalette *tp = &THEMES[theme];
+    page_text_recalc_height(pt);
+
+    int bx = (int)pt->x, by = (int)pt->y;
+    int bw = (int)pt->w, bh = (int)pt->h;
+    if (bx + bw <= clip_x0 || by + bh <= TOOLBAR_H) return;
+
+    /* Draw clipped text box card + subtle border (or blue accent when selected) */
+    int rx0 = bx < clip_x0 ? clip_x0 : bx;
+    int ry0 = by < TOOLBAR_H ? TOOLBAR_H : by;
+    int rx1 = bx + bw - 1;
+    int ry1 = by + bh - 1;
+    if (rx1 >= fb->w) rx1 = fb->w - 1;
+    if (ry1 >= fb->h) ry1 = fb->h - 1;
+    if (rx0 <= rx1 && ry0 <= ry1) {
+        fb_fill_rect(fb, rx0, ry0, rx1 - rx0 + 1, ry1 - ry0 + 1, tp->sidebar_bg);
+        fb_stroke_rect(fb, rx0, ry0, rx1 - rx0 + 1, ry1 - ry0 + 1,
+                       selected ? 3 : 1, selected ? tp->accent : tp->bar_border);
+    }
+
     int scale = pt->scale > 0 ? pt->scale : 2;
-    int x = (int)pt->x, y = (int)pt->y;
-    int max_x = fb->w - 32;
-    int line_h = 7 * scale + 8;
+    int char_w = 6 * scale;
+    int max_cols = (bw - 28) / char_w;
+    if (max_cols < 6) max_cols = 6;
+    int line_h = 7 * scale + 10;
+    int tx = bx + 14;
+    int ty = by + 14;
 
     char line[128];
     size_t li = 0;
     for (const char *p = pt->text; ; p++) {
-        bool flush = (*p == '\0' || *p == '\n' ||
-                      x + fb_text_width(line, scale) + 6 * scale > max_x ||
-                      li + 1 >= sizeof(line));
+        bool flush = (*p == '\0' || *p == '\n' || (int)li >= max_cols || li + 1 >= sizeof(line));
         if (!flush) {
             line[li++] = *p;
             line[li] = '\0';
             continue;
         }
-        if (li > 0 && x >= clip_x0 && y >= TOOLBAR_H && y + line_h < fb->h) {
-            fb_draw_text(fb, x, y, line, tp->primary_ink, scale);
+        if (li > 0 && tx >= clip_x0 && ty >= TOOLBAR_H && ty + 7 * scale < fb->h) {
+            fb_draw_text(fb, tx, ty, line, tp->primary_ink, scale);
         }
         li = 0;
         line[0] = '\0';
-        y += line_h;
+        ty += line_h;
         if (*p == '\0') break;
         if (*p != '\n') {
             line[li++] = *p;
             line[li] = '\0';
         }
     }
+
+    if (selected) {
+        /* Top-left [EDIT] badge above/on box */
+        int ey = by - 36;
+        if (ey < TOOLBAR_H + 2) ey = by + 2;
+        if (bx >= clip_x0) {
+            fb_fill_rect(fb, bx, ey, 78, 34, tp->accent);
+            fb_draw_text(fb, bx + 14, ey + 10, "EDIT", 0xFFFFFF, 2);
+        }
+        /* Top-right [X] delete badge */
+        int dx = bx + bw - 36;
+        if (dx >= clip_x0) {
+            fb_fill_rect(fb, dx, ey, 36, 34, 0xD9383A);
+            fb_draw_text(fb, dx + 13, ey + 10, "X", 0xFFFFFF, 2);
+        }
+        /* Bottom-right <> resize width handle */
+        int rhx = bx + bw - 34;
+        int rhy = by + bh - 34;
+        if (rhx >= clip_x0 && rhy >= TOOLBAR_H) {
+            fb_fill_rect(fb, rhx, rhy, 34, 34, tp->accent);
+            fb_draw_text(fb, rhx + 6, rhy + 10, "<>", 0xFFFFFF, 2);
+        }
+    }
 }
 
-void render_page(FB *fb, const NoteDoc *doc, int clip_x0, int selected_img) {
+void render_page(FB *fb, const NoteDoc *doc, int clip_x0, int selected_img, int selected_text) {
     render_paper_region(fb, (ThemeKind)doc->theme, (PaperKind)doc->paper,
                         clip_x0, TOOLBAR_H, fb->w - 1, fb->h - 1);
     Page *pg = (Page *)&doc->pages[doc->cur_page];
@@ -258,7 +301,8 @@ void render_page(FB *fb, const NoteDoc *doc, int clip_x0, int selected_img) {
                           (int)i == selected_img);
     }
     for (size_t i = 0; i < pg->text_count; i++) {
-        render_page_text(fb, (ThemeKind)doc->theme, &pg->texts[i], clip_x0);
+        render_page_text(fb, (ThemeKind)doc->theme, &pg->texts[i], clip_x0,
+                         (int)i == selected_text);
     }
     for (size_t i = 0; i < pg->count; i++) {
         render_stroke(fb, (ThemeKind)doc->theme, &pg->strokes[i], clip_x0);

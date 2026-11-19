@@ -80,7 +80,7 @@ void app_redraw_all(App *app) {
         settings_render(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
         return;
     }
-    render_page(&app->fb, &app->doc, app_canvas_clip_x0(app), app->selected_img);
+    render_page(&app->fb, &app->doc, app_canvas_clip_x0(app), app->selected_img, app->selected_text);
     ui_draw_sidebar(app);
     ui_draw_toolbar(app);
     if (app->toast_msg[0] && time(NULL) <= app->toast_until) {

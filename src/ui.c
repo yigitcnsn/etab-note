@@ -88,9 +88,11 @@ void ui_draw_toolbar(App *app) {
     int ptw = fb_text_width(pstr, 2);
     fb_draw_text(fb, 1394 + (84 - ptw) / 2, 22, pstr, tp->bar_text, 2);
     fb_draw_button(fb, tp, 1482, by, 44, bh, ">", false, false);
-    fb_draw_button(fb, tp, 1532, by, 56, bh, "+P", false, false);
-    fb_draw_button(fb, tp, 1594, by, 62, bh, "PIC", app->img_edit_mode || app->selected_img >= 0, false);
-    fb_draw_button(fb, tp, 1662, by, 66, bh, "SET", app->settings.open, false);
+    fb_draw_button(fb, tp, 1530, by, 48, bh, "+P", false, false);
+    fb_draw_button(fb, tp, 1582, by, 54, bh, "+T", false, false);
+    bool editing = app->obj_edit_mode || app->selected_img >= 0 || app->selected_text >= 0;
+    fb_draw_button(fb, tp, 1640, by, 66, bh, "EDIT", editing, false);
+    fb_draw_button(fb, tp, 1710, by, 58, bh, "SET", app->settings.open, false);
 
     int bat = read_int_sysfs("/sys/class/power_supply/battery/capacity", -1);
     time_t now = time(NULL);
@@ -352,7 +354,8 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         if (app->doc.cur_page > 0) {
             app->doc.cur_page--;
             app->selected_img = -1;
-            app->img_edit_mode = false;
+            app->selected_text = -1;
+            app->obj_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
@@ -363,45 +366,56 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         if (app->doc.cur_page + 1 < app->doc.page_count) {
             app->doc.cur_page++;
             app->selected_img = -1;
-            app->img_edit_mode = false;
+            app->selected_text = -1;
+            app->obj_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
         }
         return true;
     }
-    if (hit_rect(x, y, 1532, by, 56, bh)) {
+    if (hit_rect(x, y, 1530, by, 48, bh)) {
         if (app->doc.page_count < MAX_PAGES) {
             page_init(&app->doc.pages[app->doc.page_count]);
             app->doc.cur_page = app->doc.page_count;
             app->doc.page_count++;
             app->selected_img = -1;
-            app->img_edit_mode = false;
+            app->selected_text = -1;
+            app->obj_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
         }
         return true;
     }
-    if (hit_rect(x, y, 1594, by, 62, bh)) {
+    if (hit_rect(x, y, 1582, by, 54, bh)) {
         app_finish_active_stroke(app);
-        if (app->img_edit_mode || app->selected_img >= 0) {
-            app->img_edit_mode = false;
+        osk_open(&app->settings.osk, OSK_NEW_TEXTBOX, "NEW TEXT BOX:", "", NULL);
+        app_redraw_all(app);
+        return true;
+    }
+    if (hit_rect(x, y, 1640, by, 66, bh)) {
+        app_finish_active_stroke(app);
+        if (app->obj_edit_mode || app->selected_img >= 0 || app->selected_text >= 0) {
+            app->obj_edit_mode = false;
             app->selected_img = -1;
-            app->img_drag = IMG_DRAG_NONE;
+            app->selected_text = -1;
+            app->obj_drag = OBJ_DRAG_NONE;
         } else {
-            app->img_edit_mode = true;
-            if (pg->img_count > 0) app->selected_img = (int)pg->img_count - 1;
+            app->obj_edit_mode = true;
+            if (pg->text_count > 0) app->selected_text = (int)pg->text_count - 1;
+            else if (pg->img_count > 0) app->selected_img = (int)pg->img_count - 1;
         }
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 1662, by, 66, bh)) {
+    if (hit_rect(x, y, 1710, by, 58, bh)) {
         app_finish_active_stroke(app);
         app_save_current(app);
         app->radial.open = false;
         app->selected_img = -1;
-        app->img_edit_mode = false;
+        app->selected_text = -1;
+        app->obj_edit_mode = false;
         app->settings.open = true;
         app->settings.confirm_action = 0;
         app->settings.status_msg[0] = '\0';
@@ -566,7 +580,8 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
                 app->doc.theme = (uint8_t)app->pref_theme;
                 app->doc.paper = (uint8_t)app->pref_paper;
                 app->selected_img = -1;
-                app->img_edit_mode = false;
+                app->selected_text = -1;
+                app->obj_edit_mode = false;
                 prefs_save(app);
             }
             app->sidebar_open = false;
@@ -580,7 +595,7 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
 
 bool ui_handle_tap(App *app, int x, int y) {
     if (app->settings.open || app->settings.osk.open) {
-        char text[64] = {0};
+        char text[256] = {0};
         OskPurpose purpose = OSK_NONE;
         SettingsAction act = settings_handle_tap(&app->fb, &app->settings, x, y,
                                                  &purpose, text, sizeof(text));
@@ -609,6 +624,9 @@ bool ui_handle_tap(App *app, int x, int y) {
                 prefs_save(app);
                 app_refresh_browser(app);
                 app->sidebar_open = false;
+                app->selected_img = -1;
+                app->selected_text = -1;
+                app->obj_edit_mode = false;
             } else if (purpose == OSK_NEW_FOLDER) {
                 char fname[64] = {0};
                 if (storage_create_folder(STORAGE_DIR, text, fname, sizeof(fname))) {
@@ -623,6 +641,30 @@ bool ui_handle_tap(App *app, int x, int y) {
                     }
                     snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", new_name);
                     app_refresh_browser(app);
+                }
+            } else if (purpose == OSK_NEW_TEXTBOX && text[0]) {
+                Page *pg = &app->doc.pages[app->doc.cur_page];
+                float y0 = (float)(TOOLBAR_H + 96 + (int)(pg->text_count % 6) * 80);
+                if (page_add_text(pg, 220.0f, y0, 560.0f, 2, text)) {
+                    app->selected_img = -1;
+                    app->selected_text = (int)pg->text_count - 1;
+                    app->obj_edit_mode = true;
+                    app->doc.dirty = true;
+                    app_save_current(app);
+                }
+            } else if (purpose == OSK_EDIT_TEXTBOX) {
+                Page *pg = &app->doc.pages[app->doc.cur_page];
+                if (app->selected_text >= 0 && (size_t)app->selected_text < pg->text_count) {
+                    if (text[0]) {
+                        PageText *pt = &pg->texts[app->selected_text];
+                        snprintf(pt->text, sizeof(pt->text), "%s", text);
+                        page_text_recalc_height(pt);
+                    } else {
+                        page_remove_text(pg, (size_t)app->selected_text);
+                        app->selected_text = -1;
+                    }
+                    app->doc.dirty = true;
+                    app_save_current(app);
                 }
             }
         }

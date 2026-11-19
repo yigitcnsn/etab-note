@@ -7,10 +7,10 @@
 #include <time.h>
 
 typedef enum {
-    IMG_DRAG_NONE   = 0,
-    IMG_DRAG_MOVE   = 1,
-    IMG_DRAG_RESIZE = 2
-} ImgDragMode;
+    OBJ_DRAG_NONE   = 0,
+    OBJ_DRAG_MOVE   = 1,
+    OBJ_DRAG_RESIZE = 2
+} ObjDragMode;
 
 typedef struct {
     FB fb;
@@ -26,9 +26,10 @@ typedef struct {
     /* UI flags */
     bool sidebar_open;
     bool move_mode;
-    bool img_edit_mode;
+    bool obj_edit_mode;
     int selected_img;       /* index in current page images, or -1 */
-    ImgDragMode img_drag;
+    int selected_text;      /* index in current page texts, or -1 */
+    ObjDragMode obj_drag;
     float drag_off_x, drag_off_y;
     float drag_aspect;
     char toast_msg[64];

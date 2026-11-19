@@ -86,7 +86,7 @@ typedef struct {
 } PageImage;
 
 typedef struct {
-    float x, y;
+    float x, y, w, h;
     int scale;
     char text[256];
 } PageText;
@@ -168,7 +168,9 @@ typedef enum {
     OSK_RENAME_NOTE   = 2,
     OSK_NEW_NOTE      = 3,
     OSK_NEW_FOLDER    = 4,
-    OSK_RENAME_FOLDER = 5
+    OSK_RENAME_FOLDER = 5,
+    OSK_NEW_TEXTBOX   = 6,
+    OSK_EDIT_TEXTBOX  = 7
 } OskPurpose;
 
 typedef struct {

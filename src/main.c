@@ -30,6 +30,7 @@ int main(void) {
     app.size_idx = 1;
     app.saved_brightness = 190;
     app.selected_img = -1;
+    app.selected_text = -1;
     app.radial.hover_wedge = -1;
     app.radial.hover_color = -1;
     app.fd_pen = app.fd_touch = app.fd_key = -1;
