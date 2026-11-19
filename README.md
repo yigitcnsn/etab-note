@@ -12,6 +12,7 @@ Android (`zygote`, `surfaceflinger`, `system_server`, Dalvik/ART) is completely 
 - **Persistent Preferences:** Remembers theme (`LIGHT` / `PAPER` / `DARK`), paper template (`LINED` / `GRID` / `BLANK`), active tool/color/size, brightness, and last opened note across reboots.
 - **Standalone OS Settings (`SET`):** Native Wi-Fi scanner/connector (`wpa_cli`) with fast partial-redraw on-screen QWERTY keyboard, brightness control, live battery/storage diagnostics, ADB-over-Wi-Fi control (`:5555`), and sleep/reboot/TWRP/power-off controls.
 - **Standalone DHCPv4 Daemon:** Custom 28 KB static RFC 2131 DHCP client (`noteos-dhcp`) bringing up Wi-Fi automatically on boot without Android.
+- **Zero-Config `etab.local` & Wi-Fi Drop:** Built-in mDNS responder (`etab.local`) + HTTP Drop server (`http://etab.local:8080`) to paste images or text from iPhone, iPad, or Mac straight onto the current note page (movable, resizable, and annotatable with stylus).
 
 ## Project Structure
 ```text
@@ -58,6 +59,10 @@ make deploy
 
 # Repack standalone MediaTek bootimg (requires backups/bootimg.img)
 make bootimg
+
+# Drop current macOS clipboard (image or text) or an image file onto the tablet
+./scripts/drop.sh
+./scripts/drop.sh photo.png
 ```
 
 ## Roadmap

@@ -297,3 +297,18 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   adb shell "ps | grep noteos"
   ```
 - **Result:** Built cleanly (`0` warnings under `-Werror`, `135 KB` `noteos`, `28 KB` `noteos-dhcp`) and verified running live on tablet.
+
+### Step 24: Add `etab.local` mDNS responder & Wi-Fi Drop (images + text on notes)
+- **Changes:**
+  - `include/mdns.h`, `src/mdns.c`: Added lightweight multicast mDNS responder (`224.0.0.251:5353`) resolving `etab.local` dynamically to current `wlan0` IPv4 (stays active even when screen sleeps).
+  - `include/drop.h`, `src/drop.c`, `third_party/stb_image.h`, `src/stb_impl.c`: Added non-blocking HTTP Drop server on `:8080` (`GET /` serves mobile web paste/upload UI; `POST /drop` accepts raw PNG/JPEG/BMP, `multipart/form-data`, or `text/plain`).
+  - `src/storage.c`, `src/render.c`, `src/ui.c`, `src/input.c`: Upgraded `.enote` to v2 (backward-compatible with v1) with movable/resizable images (`PIC` toolbar mode + drag move + aspect-locked resize handle + red `[X]` delete badge) and wrapped text blocks rendered underneath vector strokes.
+  - `scripts/drop.sh`: macOS clipboard/file sender to `http://etab.local:8080/drop`.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos clean && make -C /Volumes/X/developer/etab5-noteos
+  make -C /Volumes/X/developer/etab5-noteos deploy
+  ping -c 2 etab.local
+  curl -fsS http://etab.local:8080/ | head -c 140
+  ```
+- **Result:** Built cleanly (`0` warnings under `-Werror`, `214 KB` static ARMv7 including PNG/JPEG decoder), deployed live, `etab.local` resolved in `4.0 ms`, and `http://etab.local:8080/` responded immediately.
