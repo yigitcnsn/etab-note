@@ -239,3 +239,12 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos
   ```
 - **Result:** Compiled cleanly (`0` warnings, `133 KB` static ARMv7 binary) — ready to push straight to `/data/noteos/noteos` (instant live upgrade, no reflashing needed).
+
+### Step 19: Persist visual & tool preferences across reboots (`v1.4`)
+- **Changes:**
+  - `src/main.c`: Added atomic `prefs_load` / `prefs_save` (`/data/noteos/prefs.conf`) remembering `theme`, `paper` (`LINED`/`GRID`/`BLANK`), `tool`, `color`, `size`, `brightness`, and last opened `folder`/`note`.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  ```
+- **Result:** Compiled cleanly (`0` warnings, `135 KB` static ARMv7).

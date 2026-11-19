@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #define STORAGE_DIR "/data/noteos/notes"
+#define PREFS_PATH  "/data/noteos/prefs.conf"
 
 static volatile sig_atomic_t g_quit = 0;
 
@@ -44,6 +45,12 @@ typedef struct {
     ToolKind tool;
     uint8_t color_idx;
     uint8_t size_idx;
+
+    /* Preferences persisted across reboots */
+    PaperKind pref_paper;
+    ThemeKind pref_theme;
+    char pref_folder[64];
+    char pref_note[64];
 
     /* Radial menu on stylus button */
     RadialMenu radial;
@@ -306,15 +313,74 @@ static void save_current(App *app) {
     }
 }
 
+static void prefs_save(const App *app) {
+    char tmp[128];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", PREFS_PATH);
+    FILE *f = fopen(tmp, "w");
+    if (!f) return;
+    fprintf(f, "theme=%d\n", (int)app->pref_theme);
+    fprintf(f, "paper=%d\n", (int)app->pref_paper);
+    fprintf(f, "tool=%d\n", (int)app->tool);
+    fprintf(f, "color=%d\n", (int)app->color_idx);
+    fprintf(f, "size=%d\n", (int)app->size_idx);
+    fprintf(f, "brightness=%d\n", fb_get_backlight());
+    fprintf(f, "folder=%s\n", app->doc.folder);
+    fprintf(f, "note=%s\n", app->doc.id);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+    rename(tmp, PREFS_PATH);
+}
+
+static void prefs_load(App *app) {
+    app->pref_paper = PAPER_LINED;
+    app->pref_theme = THEME_PARCHMENT;
+    app->pref_folder[0] = '\0';
+    app->pref_note[0] = '\0';
+
+    FILE *f = fopen(PREFS_PATH, "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        size_t n = strlen(line);
+        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = '\0';
+        int v = 0;
+        if (sscanf(line, "theme=%d", &v) == 1 && v >= 0 && v < THEME_COUNT) app->pref_theme = (ThemeKind)v;
+        else if (sscanf(line, "paper=%d", &v) == 1 && v >= 0 && v < PAPER_COUNT) app->pref_paper = (PaperKind)v;
+        else if (sscanf(line, "tool=%d", &v) == 1 && v >= 0 && v <= TOOL_PENCIL) app->tool = (ToolKind)v;
+        else if (sscanf(line, "color=%d", &v) == 1 && v >= 0 && v < 5) app->color_idx = (uint8_t)v;
+        else if (sscanf(line, "size=%d", &v) == 1 && v >= 0 && v < 3) app->size_idx = (uint8_t)v;
+        else if (sscanf(line, "brightness=%d", &v) == 1 && v >= 15 && v <= 255) {
+            app->saved_brightness = v;
+            fb_set_backlight(v);
+        } else if (strncmp(line, "folder=", 7) == 0) {
+            snprintf(app->pref_folder, sizeof(app->pref_folder), "%s", line + 7);
+        } else if (strncmp(line, "note=", 5) == 0) {
+            snprintf(app->pref_note, sizeof(app->pref_note), "%s", line + 5);
+        }
+    }
+    fclose(f);
+}
+
 static void open_or_create_first_note(App *app) {
+    if (app->pref_note[0] &&
+        storage_load(STORAGE_DIR, app->pref_folder, app->pref_note, &app->doc)) {
+        snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", app->pref_folder);
+        app->doc.theme = (uint8_t)app->pref_theme;
+        app->doc.paper = (uint8_t)app->pref_paper;
+        refresh_browser(app);
+        return;
+    }
     refresh_browser(app);
     if (app->note_count > 0 &&
         storage_load(STORAGE_DIR, app->cur_folder, app->notes[0].id, &app->doc)) {
+        app->doc.theme = (uint8_t)app->pref_theme;
+        app->doc.paper = (uint8_t)app->pref_paper;
         return;
     }
     char id[64], title[64];
     storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), title, sizeof(title));
-    doc_init_new(&app->doc, app->cur_folder, id, title, PAPER_LINED, THEME_PARCHMENT);
+    doc_init_new(&app->doc, app->cur_folder, id, title, app->pref_paper, app->pref_theme);
     storage_save(STORAGE_DIR, &app->doc);
     app->doc.dirty = false;
     refresh_browser(app);
@@ -439,6 +505,7 @@ static bool handle_ui_tap(App *app, int x, int y) {
                 doc_init_new(&app->doc, app->cur_folder, id, title, pk, tk);
                 storage_save(STORAGE_DIR, &app->doc);
                 app->doc.dirty = false;
+                prefs_save(app);
                 refresh_browser(app);
                 app->sidebar_open = false;
             } else if (purpose == OSK_NEW_FOLDER) {
@@ -457,6 +524,9 @@ static bool handle_ui_tap(App *app, int x, int y) {
                     refresh_browser(app);
                 }
             }
+        }
+        if (act == SET_ACT_CLOSE) {
+            prefs_save(app);
         }
         if (act != SET_ACT_NONE) {
             redraw_all(app);
@@ -528,15 +598,19 @@ static bool handle_ui_tap(App *app, int x, int y) {
         }
         if (hit(x, y, 1018, by, 100, bh)) {
             app->doc.paper = (uint8_t)((app->doc.paper + 1) % PAPER_COUNT);
+            app->pref_paper = (PaperKind)app->doc.paper;
             app->doc.dirty = true;
             save_current(app);
+            prefs_save(app);
             redraw_all(app);
             return true;
         }
         if (hit(x, y, 1124, by, 100, bh)) {
             app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
+            app->pref_theme = (ThemeKind)app->doc.theme;
             app->doc.dirty = true;
             save_current(app);
+            prefs_save(app);
             redraw_all(app);
             return true;
         }
@@ -710,6 +784,9 @@ static bool handle_ui_tap(App *app, int x, int y) {
                     strcmp(app->cur_folder, app->doc.folder) != 0) {
                     save_current(app);
                     storage_load(STORAGE_DIR, app->cur_folder, app->notes[i].id, &app->doc);
+                    app->doc.theme = (uint8_t)app->pref_theme;
+                    app->doc.paper = (uint8_t)app->pref_paper;
+                    prefs_save(app);
                 }
                 app->sidebar_open = false;
                 redraw_all(app);
@@ -728,6 +805,7 @@ static void toggle_sleep(App *app) {
         finish_active_stroke(app);
         app->radial.open = false;
         save_current(app);
+        prefs_save(app);
         app->saved_brightness = fb_get_backlight();
         if (app->saved_brightness < 40) app->saved_brightness = 180;
         fb_set_backlight(0);
@@ -783,6 +861,7 @@ int main(void) {
     app.max_y = ay.maximum > 0 ? ay.maximum : 13560;
     app.max_p = ap.maximum > 0 ? ap.maximum : 1023;
 
+    prefs_load(&app);
     open_or_create_first_note(&app);
     redraw_all(&app);
     fb_present(&app.fb, false, 0, 0, false, canvas_clip_x0(&app));
@@ -1039,6 +1118,7 @@ int main(void) {
 
     finish_active_stroke(&app);
     save_current(&app);
+    prefs_save(&app);
     doc_free(&app.doc);
     fb_close(&app.fb);
     close(fd_pen);
