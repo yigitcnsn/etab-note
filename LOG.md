@@ -312,3 +312,15 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   curl -fsS http://etab.local:8080/ | head -c 140
   ```
 - **Result:** Built cleanly (`0` warnings under `-Werror`, `214 KB` static ARMv7 including PNG/JPEG decoder), deployed live, `etab.local` resolved in `4.0 ms`, and `http://etab.local:8080/` responded immediately.
+
+### Step 25: Live drag coalescing, tap-to-reselect placed objects & movable/editable Text Boxes
+- **Fixes & Features:**
+  - `src/input.c`: Coalesced drag events outside the evdev `read()` loop so moving/resizing images and text boxes updates live in real time instead of waiting until lift. Enabled finger-tap on any placed image or text box (when pen is not hovering) to re-select and move/resize/delete it anytime.
+  - `include/types.h`, `src/storage.c`, `src/render.c`, `src/ui.c`: Upgraded `PageText` to full movable/resizable/editable **Text Boxes** (`.enote` v3, backward-compatible with v1/v2) with `[EDIT]`, `[X]`, and `<>` handles, plus `+T` (new text box) and `EDIT` toolbar buttons.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  adb connect etab.local:5555
+  make -C /Volumes/X/developer/etab5-noteos deploy
+  ```
+- **Result:** Built cleanly (`0` warnings under `-Werror`, `217 KB`) and hot-deployed over `etab.local:5555`.
