@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "input.h"
+#include "drop.h"
 #include "fb.h"
+#include "mdns.h"
 #include "osk.h"
 #include "prefs.h"
 #include "render.h"
@@ -15,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 int input_open(App *app) {
@@ -41,6 +44,125 @@ void input_close(App *app) {
     if (app->fd_touch >= 0) close(app->fd_touch);
     if (app->fd_key >= 0) close(app->fd_key);
     app->fd_pen = app->fd_touch = app->fd_key = -1;
+}
+
+static bool hit_f(float px, float py, float x, float y, float w, float h) {
+    return px >= x && px <= x + w && py >= y && py <= y + h;
+}
+
+/* Handles move / resize / delete of images when selected or in PIC edit mode */
+static bool handle_img_down(App *app, float x, float y) {
+    Page *pg = &app->doc.pages[app->doc.cur_page];
+    if (app->selected_img >= 0 && (size_t)app->selected_img < pg->img_count) {
+        PageImage *im = &pg->images[app->selected_img];
+        /* Top-right red [X] delete badge */
+        if (hit_f(x, y, im->x + im->w - 44.0f, im->y - 4.0f, 48.0f, 48.0f)) {
+            page_remove_image(pg, (size_t)app->selected_img);
+            app->selected_img = -1;
+            app->img_drag = IMG_DRAG_NONE;
+            app->doc.dirty = true;
+            app_save_current(app);
+            app_redraw_all(app);
+            return true;
+        }
+        /* Bottom-right resize handle */
+        if (hit_f(x, y, im->x + im->w - 48.0f, im->y + im->h - 48.0f, 56.0f, 56.0f)) {
+            app->img_drag = IMG_DRAG_RESIZE;
+            app->drag_aspect = (im->h > 1.0f) ? (im->w / im->h) : 1.0f;
+            return true;
+        }
+    }
+
+    /* Hit test images topmost first */
+    for (int i = (int)pg->img_count - 1; i >= 0; i--) {
+        PageImage *im = &pg->images[i];
+        if (hit_f(x, y, im->x, im->y, im->w, im->h)) {
+            app->selected_img = i;
+            app->img_drag = IMG_DRAG_MOVE;
+            app->drag_off_x = x - im->x;
+            app->drag_off_y = y - im->y;
+            app_redraw_all(app);
+            return true;
+        }
+    }
+
+    /* Tapped outside any image -> lock & deselect */
+    if (app->selected_img >= 0 || app->img_edit_mode) {
+        app->selected_img = -1;
+        app->img_edit_mode = false;
+        app->img_drag = IMG_DRAG_NONE;
+        app_redraw_all(app);
+        return true;
+    }
+    return false;
+}
+
+static bool handle_img_move(App *app, float x, float y) {
+    if (app->img_drag == IMG_DRAG_NONE || app->selected_img < 0) return false;
+    Page *pg = &app->doc.pages[app->doc.cur_page];
+    if ((size_t)app->selected_img >= pg->img_count) return false;
+    PageImage *im = &pg->images[app->selected_img];
+
+    if (app->img_drag == IMG_DRAG_MOVE) {
+        float nx = x - app->drag_off_x;
+        float ny = y - app->drag_off_y;
+        if (nx < 0.0f) nx = 0.0f;
+        if (ny < (float)TOOLBAR_H) ny = (float)TOOLBAR_H;
+        if (nx + im->w > (float)app->fb.w) nx = (float)app->fb.w - im->w;
+        if (ny + im->h > (float)app->fb.h) ny = (float)app->fb.h - im->h;
+        im->x = nx;
+        im->y = ny;
+    } else if (app->img_drag == IMG_DRAG_RESIZE) {
+        float nw = x - im->x;
+        if (nw < 100.0f) nw = 100.0f;
+        if (im->x + nw > (float)app->fb.w) nw = (float)app->fb.w - im->x;
+        float nh = nw / app->drag_aspect;
+        if (nh < 80.0f) { nh = 80.0f; nw = nh * app->drag_aspect; }
+        if (im->y + nh > (float)app->fb.h) {
+            nh = (float)app->fb.h - im->y;
+            nw = nh * app->drag_aspect;
+        }
+        im->w = nw;
+        im->h = nh;
+    }
+    app->doc.dirty = true;
+    app_redraw_all(app);
+    return true;
+}
+
+static void handle_img_up(App *app) {
+    if (app->img_drag != IMG_DRAG_NONE) {
+        app->img_drag = IMG_DRAG_NONE;
+        app_save_current(app);
+    }
+}
+
+static void handle_drop_event(App *app, const DropEvent *ev) {
+    Page *pg = &app->doc.pages[app->doc.cur_page];
+    if (ev->kind == DROP_IMAGE) {
+        float x = (float)(app->fb.w / 2 - 280);
+        float y = (float)(TOOLBAR_H + 140 + (int)(pg->img_count % 4) * 32);
+        if (page_add_image(pg, ev->image_filename, x, y, 0.0f, 0.0f)) {
+            PageImage *im = &pg->images[pg->img_count - 1];
+            im->x = ((float)app->fb.w - im->w) * 0.5f;
+            if (im->x < 20.0f) im->x = 20.0f;
+            app->selected_img = (int)pg->img_count - 1;
+            app->img_edit_mode = true;
+            app->doc.dirty = true;
+            app_save_current(app);
+            snprintf(app->toast_msg, sizeof(app->toast_msg), "IMAGE DROPPED! DRAG TO MOVE/RESIZE");
+            app->toast_until = time(NULL) + 4;
+        }
+    } else if (ev->kind == DROP_TEXT) {
+        float y = (float)(TOOLBAR_H + 64 + (int)(pg->text_count % 8) * 90);
+        if (page_add_text(pg, 140.0f, y, 2, ev->text)) {
+            app->doc.dirty = true;
+            app_save_current(app);
+            snprintf(app->toast_msg, sizeof(app->toast_msg), "TEXT DROPPED ONTO PAGE!");
+            app->toast_until = time(NULL) + 3;
+        }
+    }
+    if (!app->sleeping) app_redraw_all(app);
 }
 
 static void handle_keys(App *app) {
@@ -74,10 +196,20 @@ static bool handle_touch(App *app) {
             app->touch_down = (ev.value != 0);
         } else if (ev.type == EV_SYN && ev.code == SYN_REPORT) {
             if (app->touch_down && !app->touch_was_down && !app->tool_pen && !app->tool_rubber) {
-                if (ui_handle_tap(app, app->touch_x, app->touch_y)) need_present = true;
-            } else if (!app->touch_down && app->touch_was_down && app->settings.osk.open) {
-                osk_release(&app->fb, (ThemeKind)app->doc.theme, &app->settings.osk);
-                need_present = true;
+                if (ui_handle_tap(app, app->touch_x, app->touch_y)) {
+                    need_present = true;
+                } else if ((app->selected_img >= 0 || app->img_edit_mode) &&
+                           app->touch_y >= TOOLBAR_H && app->touch_x >= app_canvas_clip_x0(app)) {
+                    if (handle_img_down(app, (float)app->touch_x, (float)app->touch_y)) need_present = true;
+                }
+            } else if (app->touch_down && app->img_drag != IMG_DRAG_NONE) {
+                if (handle_img_move(app, (float)app->touch_x, (float)app->touch_y)) need_present = true;
+            } else if (!app->touch_down && app->touch_was_down) {
+                if (app->img_drag != IMG_DRAG_NONE) handle_img_up(app);
+                if (app->settings.osk.open) {
+                    osk_release(&app->fb, (ThemeKind)app->doc.theme, &app->settings.osk);
+                    need_present = true;
+                }
             }
             app->touch_was_down = app->touch_down;
         }
@@ -96,7 +228,7 @@ static bool handle_stylus(App *app) {
         } else if (ev.type == EV_KEY) {
             if (ev.code == BTN_TOOL_PEN) {
                 app->tool_pen = (ev.value != 0);
-                if (!app->tool_pen) app_finish_active_stroke(app);
+                if (!app->tool_pen) { app_finish_active_stroke(app); handle_img_up(app); }
             } else if (ev.code == BTN_TOOL_RUBBER) {
                 app->tool_rubber = (ev.value != 0);
                 if (!app->tool_rubber) app_finish_active_stroke(app);
@@ -104,7 +236,7 @@ static bool handle_stylus(App *app) {
                 app->btn_stylus = (ev.value != 0);
             } else if (ev.code == BTN_TOUCH) {
                 app->pen_touch = (ev.value != 0);
-                if (!app->pen_touch) app_finish_active_stroke(app);
+                if (!app->pen_touch) { app_finish_active_stroke(app); handle_img_up(app); }
             }
         } else if (ev.type == EV_SYN && ev.code == SYN_REPORT) {
             float sx = (float)app->raw_x * (float)(app->fb.w - 1) / (float)app->max_x;
@@ -172,6 +304,27 @@ static bool handle_stylus(App *app) {
                 continue;
             }
 
+            /* Image move/resize/delete while in PIC edit mode or image selected */
+            if (app->selected_img >= 0 || app->img_edit_mode) {
+                if (down && !app->pen_was_down) {
+                    if (sy < TOOLBAR_H || (app->sidebar_open && sx < SIDEBAR_W)) {
+                        ui_handle_tap(app, (int)sx, (int)sy);
+                    } else {
+                        handle_img_down(app, sx, sy);
+                    }
+                    app->pen_was_down = true;
+                    need_present = true;
+                    continue;
+                } else if (down && app->img_drag != IMG_DRAG_NONE) {
+                    handle_img_move(app, sx, sy);
+                    app->pen_was_down = true;
+                    need_present = true;
+                    continue;
+                } else if (!down && app->img_drag != IMG_DRAG_NONE) {
+                    handle_img_up(app);
+                }
+            }
+
             bool erase_mode = app->tool_rubber || (app->tool == TOOL_ERASER);
             if (down && !app->pen_was_down) {
                 if (sy < TOOLBAR_H || (app->sidebar_open && sx < SIDEBAR_W)) {
@@ -202,7 +355,7 @@ static bool handle_stylus(App *app) {
                     Page *pg = &app->doc.pages[app->doc.cur_page];
                     if (page_erase_at(pg, sx, sy, 20.0f)) {
                         app->doc.dirty = true;
-                        render_page(&app->fb, &app->doc, clip_x0);
+                        render_page(&app->fb, &app->doc, clip_x0, app->selected_img);
                         ui_draw_toolbar(app);
                     }
                 } else if (app->drawing) {
@@ -238,16 +391,31 @@ static bool handle_stylus(App *app) {
 }
 
 bool input_poll_once(App *app, int timeout_ms) {
-    struct pollfd pfds[3] = {
-        { .fd = app->fd_pen,   .events = POLLIN },
-        { .fd = app->fd_touch, .events = POLLIN },
-        { .fd = app->fd_key,   .events = POLLIN }
+    struct pollfd pfds[5] = {
+        { .fd = app->fd_pen,         .events = POLLIN },
+        { .fd = app->fd_touch,       .events = POLLIN },
+        { .fd = app->fd_key,         .events = POLLIN },
+        { .fd = app->mdns.fd,        .events = POLLIN },
+        { .fd = app->drop.listen_fd, .events = POLLIN }
     };
 
-    int pr = poll(pfds, 3, timeout_ms);
+    int pr = poll(pfds, 5, timeout_ms);
     if (pr < 0) return errno == EINTR;
 
     bool need_present = false;
+
+    /* Network services stay active even when screen is sleeping */
+    if (app->mdns.fd >= 0 && (pfds[3].revents & POLLIN)) {
+        mdns_handle_readable(&app->mdns);
+    }
+    if (app->drop.listen_fd >= 0 && (pfds[4].revents & POLLIN)) {
+        DropEvent dev;
+        if (drop_accept_and_handle(&app->drop, &dev)) {
+            handle_drop_event(app, &dev);
+            if (!app->sleeping) need_present = true;
+        }
+    }
+
     if (app->fd_key >= 0 && (pfds[2].revents & POLLIN)) handle_keys(app);
 
     if (app->sleeping) {
@@ -265,8 +433,15 @@ bool input_poll_once(App *app, int timeout_ms) {
     }
 
     time_t now = time(NULL);
+    if (app->toast_msg[0] && now > app->toast_until) {
+        app->toast_msg[0] = '\0';
+        app_redraw_all(app);
+        need_present = true;
+    }
+
     if (now - app->last_status_tick >= 20) {
         app->last_status_tick = now;
+        mdns_announce(&app->mdns);
         if (app->settings.open) {
             settings_refresh(&app->settings);
             app_redraw_all(app);

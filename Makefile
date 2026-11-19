@@ -15,9 +15,11 @@ SRCS    := src/main.c \
            src/osk.c \
            src/settings.c \
            src/ui.c \
-           src/input.c
+           src/input.c \
+           src/mdns.c \
+           src/drop.c
 
-OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS))
+OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS)) $(OBJ_DIR)/stb_impl.o
 DEPS    := $(OBJS:.o=.d)
 
 .PHONY: all clean deploy bootimg
@@ -27,6 +29,10 @@ all: $(BUILD)/noteos $(BUILD)/noteos-dhcp
 $(BUILD)/noteos: $(OBJS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
+
+$(OBJ_DIR)/stb_impl.o: src/stb_impl.c third_party/stb_image.h
+	@mkdir -p $(OBJ_DIR)
+	$(CC) -target $(TARGET) -mcpu=cortex_a7 -static -O2 -Wno-unused-function -Iinclude -MMD -MP -c $< -o $@
 
 $(OBJ_DIR)/%.o: src/%.c
 	@mkdir -p $(OBJ_DIR)

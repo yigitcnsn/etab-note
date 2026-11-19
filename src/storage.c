@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "storage.h"
+#include "../third_party/stb_image.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -12,7 +13,18 @@
 #include <unistd.h>
 
 #define ENOTE_MAGIC   0x454E4F54u /* "ENOT" */
-#define ENOTE_VERSION 1u
+#define ENOTE_VERSION 2u
+
+typedef struct {
+    char filename[64];
+    float x, y, w, h;
+} EnoteImageRec;
+
+typedef struct {
+    float x, y;
+    int32_t scale;
+    char text[256];
+} EnoteTextRec;
 
 typedef struct {
     uint32_t magic;
@@ -96,6 +108,11 @@ void page_free(Page *pg) {
     free(pg->strokes);
     clear_redo(pg);
     free(pg->redo_strokes);
+    for (size_t i = 0; i < pg->img_count; i++) {
+        free(pg->images[i].rgba);
+    }
+    free(pg->images);
+    free(pg->texts);
     memset(pg, 0, sizeof(*pg));
 }
 
@@ -160,6 +177,86 @@ void page_clear(Page *pg) {
     }
     pg->count = 0;
     clear_redo(pg);
+    for (size_t i = 0; i < pg->img_count; i++) {
+        free(pg->images[i].rgba);
+    }
+    pg->img_count = 0;
+    pg->text_count = 0;
+}
+
+bool page_ensure_image_loaded(PageImage *img) {
+    if (img->rgba) return true;
+    char full[512];
+    snprintf(full, sizeof(full), "%s/%s", IMAGES_DIR, img->filename);
+    int w = 0, h = 0, ch = 0;
+    uint8_t *px = stbi_load(full, &w, &h, &ch, 4);
+    if (!px || w <= 0 || h <= 0) {
+        if (px) stbi_image_free(px);
+        return false;
+    }
+    img->rgba = px;
+    img->img_w = w;
+    img->img_h = h;
+    return true;
+}
+
+bool page_add_image(Page *pg, const char *filename, float x, float y, float w, float h) {
+    if (pg->img_count >= MAX_PAGE_IMGS) return false;
+    if (pg->img_count >= pg->img_cap) {
+        size_t ncap = pg->img_cap ? pg->img_cap * 2 : 4;
+        PageImage *ni = realloc(pg->images, ncap * sizeof(PageImage));
+        if (!ni) return false;
+        pg->images = ni;
+        pg->img_cap = ncap;
+    }
+    PageImage *im = &pg->images[pg->img_count];
+    memset(im, 0, sizeof(*im));
+    snprintf(im->filename, sizeof(im->filename), "%s", filename);
+    if (!page_ensure_image_loaded(im)) return false;
+
+    if (w <= 0.0f || h <= 0.0f) {
+        float scale = 1.0f;
+        if (im->img_w > 720) scale = 720.0f / (float)im->img_w;
+        if ((float)im->img_h * scale > 620.0f) scale = 620.0f / (float)im->img_h;
+        w = (float)im->img_w * scale;
+        h = (float)im->img_h * scale;
+        if (w < 80.0f) w = 80.0f;
+        if (h < 80.0f) h = 80.0f;
+    }
+    im->x = x;
+    im->y = y;
+    im->w = w;
+    im->h = h;
+    pg->img_count++;
+    return true;
+}
+
+void page_remove_image(Page *pg, size_t idx) {
+    if (idx >= pg->img_count) return;
+    free(pg->images[idx].rgba);
+    if (idx + 1 < pg->img_count) {
+        memmove(&pg->images[idx], &pg->images[idx + 1],
+                (pg->img_count - idx - 1) * sizeof(PageImage));
+    }
+    pg->img_count--;
+}
+
+bool page_add_text(Page *pg, float x, float y, int scale, const char *text) {
+    if (pg->text_count >= MAX_PAGE_TEXTS || !text || !text[0]) return false;
+    if (pg->text_count >= pg->text_cap) {
+        size_t ncap = pg->text_cap ? pg->text_cap * 2 : 8;
+        PageText *nt = realloc(pg->texts, ncap * sizeof(PageText));
+        if (!nt) return false;
+        pg->texts = nt;
+        pg->text_cap = ncap;
+    }
+    PageText *pt = &pg->texts[pg->text_count++];
+    memset(pt, 0, sizeof(*pt));
+    pt->x = x;
+    pt->y = y;
+    pt->scale = scale > 0 ? scale : 2;
+    snprintf(pt->text, sizeof(pt->text), "%s", text);
+    return true;
 }
 
 static float point_seg_dist2(float px, float py, float ax, float ay, float bx, float by) {
@@ -460,6 +557,29 @@ bool storage_save(const char *root_dir, const NoteDoc *doc) {
                 if (fwrite(st->pts, sizeof(StrokePoint), st->count, f) != st->count) goto fail;
             }
         }
+        uint32_t ic = (uint32_t)doc->pages[p].img_count;
+        if (fwrite(&ic, sizeof(ic), 1, f) != 1) goto fail;
+        for (uint32_t i = 0; i < ic; i++) {
+            EnoteImageRec rec;
+            memset(&rec, 0, sizeof(rec));
+            snprintf(rec.filename, sizeof(rec.filename), "%s", doc->pages[p].images[i].filename);
+            rec.x = doc->pages[p].images[i].x;
+            rec.y = doc->pages[p].images[i].y;
+            rec.w = doc->pages[p].images[i].w;
+            rec.h = doc->pages[p].images[i].h;
+            if (fwrite(&rec, sizeof(rec), 1, f) != 1) goto fail;
+        }
+        uint32_t tc = (uint32_t)doc->pages[p].text_count;
+        if (fwrite(&tc, sizeof(tc), 1, f) != 1) goto fail;
+        for (uint32_t t = 0; t < tc; t++) {
+            EnoteTextRec trec;
+            memset(&trec, 0, sizeof(trec));
+            trec.x = doc->pages[p].texts[t].x;
+            trec.y = doc->pages[p].texts[t].y;
+            trec.scale = doc->pages[p].texts[t].scale;
+            snprintf(trec.text, sizeof(trec.text), "%s", doc->pages[p].texts[t].text);
+            if (fwrite(&trec, sizeof(trec), 1, f) != 1) goto fail;
+        }
     }
 
     fflush(f);
@@ -485,7 +605,8 @@ bool storage_load(const char *root_dir, const char *folder, const char *id, Note
     if (!f) return false;
 
     EnoteHeader hdr;
-    if (fread(&hdr, sizeof(hdr), 1, f) != 1 || hdr.magic != ENOTE_MAGIC || hdr.version != ENOTE_VERSION) {
+    if (fread(&hdr, sizeof(hdr), 1, f) != 1 || hdr.magic != ENOTE_MAGIC ||
+        (hdr.version != 1u && hdr.version != ENOTE_VERSION)) {
         fclose(f);
         return false;
     }
@@ -525,6 +646,24 @@ bool storage_load(const char *root_dir, const char *folder, const char *id, Note
                 st.cap = sh.point_count;
                 stroke_update_bbox(&st);
                 page_push_stroke(&doc->pages[p], st);
+            }
+        }
+        if (hdr.version >= 2u) {
+            uint32_t ic = 0;
+            if (fread(&ic, sizeof(ic), 1, f) == 1 && ic <= MAX_PAGE_IMGS) {
+                for (uint32_t i = 0; i < ic; i++) {
+                    EnoteImageRec rec;
+                    if (fread(&rec, sizeof(rec), 1, f) != 1) break;
+                    page_add_image(&doc->pages[p], rec.filename, rec.x, rec.y, rec.w, rec.h);
+                }
+            }
+            uint32_t tc = 0;
+            if (fread(&tc, sizeof(tc), 1, f) == 1 && tc <= MAX_PAGE_TEXTS) {
+                for (uint32_t t = 0; t < tc; t++) {
+                    EnoteTextRec trec;
+                    if (fread(&trec, sizeof(trec), 1, f) != 1) break;
+                    page_add_text(&doc->pages[p], trec.x, trec.y, trec.scale, trec.text);
+                }
             }
         }
     }

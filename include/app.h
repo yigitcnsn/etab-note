@@ -1,8 +1,16 @@
 #ifndef NOTEOS_APP_H
 #define NOTEOS_APP_H
 
+#include "drop.h"
+#include "mdns.h"
 #include "types.h"
 #include <time.h>
+
+typedef enum {
+    IMG_DRAG_NONE   = 0,
+    IMG_DRAG_MOVE   = 1,
+    IMG_DRAG_RESIZE = 2
+} ImgDragMode;
 
 typedef struct {
     FB fb;
@@ -18,11 +26,22 @@ typedef struct {
     /* UI flags */
     bool sidebar_open;
     bool move_mode;
+    bool img_edit_mode;
+    int selected_img;       /* index in current page images, or -1 */
+    ImgDragMode img_drag;
+    float drag_off_x, drag_off_y;
+    float drag_aspect;
+    char toast_msg[64];
+    time_t toast_until;
     bool confirm_delete;
     bool confirm_clear;
     bool sleeping;
     int saved_brightness;
     bool quit;
+
+    /* Network services (mDNS etab.local + HTTP Drop :8080) */
+    MdnsState mdns;
+    DropServer drop;
 
     /* Drawing tool state */
     ToolKind tool;

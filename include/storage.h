@@ -14,6 +14,10 @@ bool page_undo(Page *pg);
 bool page_redo(Page *pg);
 void page_clear(Page *pg);
 bool page_erase_at(Page *pg, float x, float y, float radius);
+bool page_add_image(Page *pg, const char *filename, float x, float y, float w, float h);
+void page_remove_image(Page *pg, size_t idx);
+bool page_ensure_image_loaded(PageImage *img);
+bool page_add_text(Page *pg, float x, float y, int scale, const char *text);
 
 void doc_init_new(NoteDoc *doc, const char *folder, const char *id, const char *title,
                   PaperKind paper, ThemeKind theme);

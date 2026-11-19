@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #define STORAGE_DIR    "/data/noteos/notes"
+#define IMAGES_DIR     "/data/noteos/images"
 #define PREFS_PATH     "/data/noteos/prefs.conf"
 
 #define TOOLBAR_H      58
@@ -14,6 +15,8 @@
 #define MAX_NOTES      128
 #define MAX_FOLDERS    64
 #define MAX_PAGES      64
+#define MAX_PAGE_IMGS  16
+#define MAX_PAGE_TEXTS 32
 
 #define RADIAL_INNER_R 44
 #define RADIAL_OUTER_R 156
@@ -76,12 +79,31 @@ typedef struct {
 } Stroke;
 
 typedef struct {
+    char filename[64];   /* relative to IMAGES_DIR */
+    float x, y, w, h;
+    uint8_t *rgba;       /* cached RGBA8888 decoded pixels */
+    int img_w, img_h;
+} PageImage;
+
+typedef struct {
+    float x, y;
+    int scale;
+    char text[256];
+} PageText;
+
+typedef struct {
     Stroke *strokes;
     size_t count;
     size_t cap;
     Stroke *redo_strokes;
     size_t redo_count;
     size_t redo_cap;
+    PageImage *images;
+    size_t img_count;
+    size_t img_cap;
+    PageText *texts;
+    size_t text_count;
+    size_t text_cap;
 } Page;
 
 typedef struct {

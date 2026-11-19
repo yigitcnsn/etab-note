@@ -88,8 +88,9 @@ void ui_draw_toolbar(App *app) {
     int ptw = fb_text_width(pstr, 2);
     fb_draw_text(fb, 1394 + (84 - ptw) / 2, 22, pstr, tp->bar_text, 2);
     fb_draw_button(fb, tp, 1482, by, 44, bh, ">", false, false);
-    fb_draw_button(fb, tp, 1532, by, 58, bh, "+P", false, false);
-    fb_draw_button(fb, tp, 1598, by, 78, bh, "SET", app->settings.open, false);
+    fb_draw_button(fb, tp, 1532, by, 56, bh, "+P", false, false);
+    fb_draw_button(fb, tp, 1594, by, 62, bh, "PIC", app->img_edit_mode || app->selected_img >= 0, false);
+    fb_draw_button(fb, tp, 1662, by, 66, bh, "SET", app->settings.open, false);
 
     int bat = read_int_sysfs("/sys/class/power_supply/battery/capacity", -1);
     time_t now = time(NULL);
@@ -350,6 +351,8 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     if (hit_rect(x, y, 1346, by, 44, bh)) {
         if (app->doc.cur_page > 0) {
             app->doc.cur_page--;
+            app->selected_img = -1;
+            app->img_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
@@ -359,27 +362,46 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     if (hit_rect(x, y, 1482, by, 44, bh)) {
         if (app->doc.cur_page + 1 < app->doc.page_count) {
             app->doc.cur_page++;
+            app->selected_img = -1;
+            app->img_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
         }
         return true;
     }
-    if (hit_rect(x, y, 1532, by, 58, bh)) {
+    if (hit_rect(x, y, 1532, by, 56, bh)) {
         if (app->doc.page_count < MAX_PAGES) {
             page_init(&app->doc.pages[app->doc.page_count]);
             app->doc.cur_page = app->doc.page_count;
             app->doc.page_count++;
+            app->selected_img = -1;
+            app->img_edit_mode = false;
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
         }
         return true;
     }
-    if (hit_rect(x, y, 1598, by, 78, bh)) {
+    if (hit_rect(x, y, 1594, by, 62, bh)) {
+        app_finish_active_stroke(app);
+        if (app->img_edit_mode || app->selected_img >= 0) {
+            app->img_edit_mode = false;
+            app->selected_img = -1;
+            app->img_drag = IMG_DRAG_NONE;
+        } else {
+            app->img_edit_mode = true;
+            if (pg->img_count > 0) app->selected_img = (int)pg->img_count - 1;
+        }
+        app_redraw_all(app);
+        return true;
+    }
+    if (hit_rect(x, y, 1662, by, 66, bh)) {
         app_finish_active_stroke(app);
         app_save_current(app);
         app->radial.open = false;
+        app->selected_img = -1;
+        app->img_edit_mode = false;
         app->settings.open = true;
         app->settings.confirm_action = 0;
         app->settings.status_msg[0] = '\0';
@@ -543,6 +565,8 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
                 storage_load(STORAGE_DIR, app->cur_folder, app->notes[i].id, &app->doc);
                 app->doc.theme = (uint8_t)app->pref_theme;
                 app->doc.paper = (uint8_t)app->pref_paper;
+                app->selected_img = -1;
+                app->img_edit_mode = false;
                 prefs_save(app);
             }
             app->sidebar_open = false;

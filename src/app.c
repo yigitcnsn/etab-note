@@ -80,9 +80,17 @@ void app_redraw_all(App *app) {
         settings_render(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
         return;
     }
-    render_page(&app->fb, &app->doc, app_canvas_clip_x0(app));
+    render_page(&app->fb, &app->doc, app_canvas_clip_x0(app), app->selected_img);
     ui_draw_sidebar(app);
     ui_draw_toolbar(app);
+    if (app->toast_msg[0] && time(NULL) <= app->toast_until) {
+        const ThemePalette *tp = &THEMES[app->doc.theme];
+        int tw = fb_text_width(app->toast_msg, 2) + 40;
+        int tx = (app->fb.w - tw) / 2;
+        int ty = TOOLBAR_H + 14;
+        fb_fill_rect(&app->fb, tx, ty, tw, 42, tp->accent);
+        fb_draw_text(&app->fb, tx + 20, ty + 14, app->toast_msg, 0xFFFFFF, 2);
+    }
     if (app->radial.open) {
         render_radial_menu(&app->fb, (ThemeKind)app->doc.theme, &app->radial,
                            app->tool, app->size_idx, app->color_idx);

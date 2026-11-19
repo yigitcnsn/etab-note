@@ -331,8 +331,8 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
 
     fb_fill_rect(fb, rx + 20, ry + 306, rw - 40, 2, tp->bar_border);
 
-    fb_draw_text(fb, rx + 24, ry + 326, "REMOTE ACCESS (ADB OVER WI-FI)", tp->accent, 2);
-    snprintf(line, sizeof(line), "CONNECT : ADB CONNECT %s:5555", st->ip);
+    fb_draw_text(fb, rx + 24, ry + 326, "REMOTE & WI-FI DROP (ETAB.LOCAL)", tp->accent, 2);
+    snprintf(line, sizeof(line), "DROP : HTTP://ETAB.LOCAL:8080   (ADB :5555)");
     fb_draw_text(fb, rx + 24, ry + 362, line, tp->bar_text, 2);
     fb_draw_button(fb, tp, rx + 24, ry + 402, 340, 52, "RESTART ADBD :5555", false, false);
     fb_draw_button(fb, tp, rx + 380, ry + 402, 220, 52, "REFRESH", false, false);
