@@ -238,6 +238,8 @@ bool storage_delete_folder(const char *root_dir, const char *folder);
 int  storage_list(const char *root_dir, const char *folder, NoteMeta *out, int max_notes);
 bool storage_save(const char *root_dir, const NoteDoc *doc);
 bool storage_load(const char *root_dir, const char *folder, const char *id, NoteDoc *doc);
+bool storage_move_note(const char *root_dir, const char *old_folder, const char *id,
+                       const char *new_folder, char *new_id_out, size_t new_id_sz);
 bool storage_delete(const char *root_dir, const char *folder, const char *id);
 void storage_next_id(const char *root_dir, const char *folder,
                      char *id_out, size_t id_sz, char *title_out, size_t title_sz);

@@ -248,3 +248,13 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos
   ```
 - **Result:** Compiled cleanly (`0` warnings, `135 KB` static ARMv7).
+
+### Step 20: Add Move Note between folders (`v1.5`)
+- **Changes:**
+  - `src/noteos.h`, `src/storage.c`: Added `storage_move_note` (atomic `rename()` between folders / root with collision-safe ID generation).
+  - `src/main.c`: Added `MOVE` button & inline folder picker (`MOVE NOTE TO:`) in the `NOTES` sidebar, plus prominent `RENAME FOLDER` button when inside a folder.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  ```
+- **Result:** Compiled cleanly (`0` warnings, `137 KB` static ARMv7). Waiting for tablet IP or USB data connection to push `/data/noteos/noteos`.

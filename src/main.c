@@ -37,6 +37,7 @@ typedef struct {
     int note_count;
 
     bool sidebar_open;
+    bool move_mode;
     bool confirm_delete;
     bool confirm_clear;
     bool sleeping;
@@ -218,6 +219,31 @@ static void draw_sidebar(App *app) {
     fb_fill_rect(fb, SIDEBAR_W - 2, TOOLBAR_H, 2, fb->h - TOOLBAR_H, tp->bar_border);
 
     int y = TOOLBAR_H + 14;
+    if (app->move_mode) {
+        fb_draw_text(fb, 18, y + 12, "MOVE NOTE TO:", tp->accent, 2);
+        draw_button(fb, tp, SIDEBAR_W - 116, y, 102, 42, "CANCEL", false, false);
+        y += 58;
+
+        /* Destination 0: Root */
+        bool is_root = (app->doc.folder[0] == '\0');
+        fb_fill_rect(fb, 10, y, SIDEBAR_W - 22, 50, is_root ? tp->sidebar_sel : tp->bar_bg);
+        fb_stroke_rect(fb, 10, y, SIDEBAR_W - 22, 50, 1, is_root ? tp->accent : tp->bar_border);
+        fb_draw_text(fb, 24, y + 16, "ALL NOTES (ROOT)", tp->bar_text, 2);
+        y += 58;
+
+        int max_y = fb->h - 24;
+        for (int i = 0; i < app->folder_count && y + 54 <= max_y; i++) {
+            bool cur = (strcmp(app->folders[i].name, app->doc.folder) == 0);
+            fb_fill_rect(fb, 10, y, SIDEBAR_W - 22, 50, cur ? tp->sidebar_sel : tp->bar_bg);
+            fb_stroke_rect(fb, 10, y, SIDEBAR_W - 22, 50, 1, cur ? tp->accent : tp->bar_border);
+            fb_fill_rect(fb, 20, y + 16, 22, 16, tp->accent);
+            fb_fill_rect(fb, 20, y + 12, 10, 5, tp->accent);
+            fb_draw_text(fb, 52, y + 16, app->folders[i].display, tp->bar_text, 2);
+            y += 58;
+        }
+        return;
+    }
+
     if (app->cur_folder[0] == '\0') {
         /* Root view: [+ NOTE] and [+ DIR] side by side */
         draw_button(fb, tp, 14, y, 140, 44, "+ NOTE", true, false);
@@ -234,7 +260,7 @@ static void draw_sidebar(App *app) {
         y += 56;
     }
 
-    int max_y = fb->h - 134;
+    int max_y = app->cur_folder[0] != '\0' ? (fb->h - 186) : (fb->h - 134);
 
     /* Folders (only at root) */
     if (app->cur_folder[0] == '\0') {
@@ -271,10 +297,12 @@ static void draw_sidebar(App *app) {
 
     int fy = fb->h - 66;
     if (app->cur_folder[0] != '\0') {
+        draw_button(fb, tp, 14, fy - 106, SIDEBAR_W - 30, 44, "RENAME FOLDER", false, false);
         draw_button(fb, tp, 14, fy - 54, 140, 44, "REN NOTE", false, false);
-        draw_button(fb, tp, 162, fy - 54, 142, 44, "REN DIR", false, false);
+        draw_button(fb, tp, 162, fy - 54, 142, 44, "MOVE", false, false);
     } else {
-        draw_button(fb, tp, 14, fy - 54, SIDEBAR_W - 30, 44, "RENAME NOTE", false, false);
+        draw_button(fb, tp, 14, fy - 54, 140, 44, "RENAME", false, false);
+        draw_button(fb, tp, 162, fy - 54, 142, 44, "MOVE", false, false);
     }
     const char *del_lbl = app->confirm_delete ? "SURE?" :
         ((app->cur_folder[0] != '\0' && app->note_count == 0) ? "DEL DIR" : "DELETE");
@@ -546,6 +574,7 @@ static bool handle_ui_tap(App *app, int x, int y) {
 
         if (hit(x, y, 12, by, 114, bh)) {
             app->sidebar_open = !app->sidebar_open;
+            app->move_mode = false;
             if (app->sidebar_open) {
                 save_current(app);
                 refresh_browser(app);
@@ -673,6 +702,52 @@ static bool handle_ui_tap(App *app, int x, int y) {
     /* Sidebar */
     if (app->sidebar_open && x < SIDEBAR_W) {
         int fy = app->fb.h - 66;
+        if (app->move_mode) {
+            int my = TOOLBAR_H + 14;
+            if (hit(x, y, SIDEBAR_W - 116, my, 102, 42)) {
+                app->move_mode = false;
+                draw_sidebar(app);
+                return true;
+            }
+            my += 58;
+            /* Destination 0: Root ("") */
+            if (hit(x, y, 10, my, SIDEBAR_W - 22, 50)) {
+                save_current(app);
+                char new_id[64] = {0};
+                if (storage_move_note(STORAGE_DIR, app->doc.folder, app->doc.id, "", new_id, sizeof(new_id))) {
+                    app->doc.folder[0] = '\0';
+                    snprintf(app->doc.id, sizeof(app->doc.id), "%s", new_id);
+                    app->cur_folder[0] = '\0';
+                    prefs_save(app);
+                }
+                app->move_mode = false;
+                refresh_browser(app);
+                draw_sidebar(app);
+                return true;
+            }
+            my += 58;
+            int max_my = app->fb.h - 24;
+            for (int i = 0; i < app->folder_count && my + 54 <= max_my; i++) {
+                if (hit(x, y, 10, my, SIDEBAR_W - 22, 50)) {
+                    save_current(app);
+                    char new_id[64] = {0};
+                    if (storage_move_note(STORAGE_DIR, app->doc.folder, app->doc.id,
+                                          app->folders[i].name, new_id, sizeof(new_id))) {
+                        snprintf(app->doc.folder, sizeof(app->doc.folder), "%s", app->folders[i].name);
+                        snprintf(app->doc.id, sizeof(app->doc.id), "%s", new_id);
+                        snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", app->folders[i].name);
+                        prefs_save(app);
+                    }
+                    app->move_mode = false;
+                    refresh_browser(app);
+                    draw_sidebar(app);
+                    return true;
+                }
+                my += 58;
+            }
+            return true;
+        }
+
         if (!hit(x, y, 14, fy, 140, 48)) app->confirm_delete = false;
         app->confirm_clear = false;
 
@@ -714,23 +789,25 @@ static bool handle_ui_tap(App *app, int x, int y) {
             ry += 56;
         }
 
-        /* RENAME buttons above footer */
+        /* RENAME & MOVE buttons above footer */
         if (app->cur_folder[0] != '\0') {
-            if (hit(x, y, 14, fy - 54, 140, 44)) {
-                settings_open_osk(&app->settings, OSK_RENAME_NOTE, "RENAME CURRENT NOTE:", app->doc.title, NULL);
-                redraw_all(app);
-                return true;
-            }
-            if (hit(x, y, 162, fy - 54, 142, 44)) {
+            if (hit(x, y, 14, fy - 106, SIDEBAR_W - 30, 44)) {
                 char fdisp[64];
                 pretty_folder_name(app->cur_folder, fdisp, sizeof(fdisp));
                 settings_open_osk(&app->settings, OSK_RENAME_FOLDER, "RENAME FOLDER:", fdisp, NULL);
                 redraw_all(app);
                 return true;
             }
-        } else if (hit(x, y, 14, fy - 54, SIDEBAR_W - 30, 44)) {
+        }
+        if (hit(x, y, 14, fy - 54, 140, 44)) {
             settings_open_osk(&app->settings, OSK_RENAME_NOTE, "RENAME CURRENT NOTE:", app->doc.title, NULL);
             redraw_all(app);
+            return true;
+        }
+        if (hit(x, y, 162, fy - 54, 142, 44)) {
+            refresh_browser(app);
+            app->move_mode = true;
+            draw_sidebar(app);
             return true;
         }
 
@@ -761,7 +838,7 @@ static bool handle_ui_tap(App *app, int x, int y) {
             return true;
         }
 
-        int max_y = app->fb.h - 134;
+        int max_y = app->cur_folder[0] != '\0' ? (app->fb.h - 186) : (app->fb.h - 134);
 
         /* Folder rows (root only) */
         if (app->cur_folder[0] == '\0') {

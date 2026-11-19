@@ -534,6 +534,34 @@ bool storage_load(const char *root_dir, const char *folder, const char *id, Note
     return true;
 }
 
+bool storage_move_note(const char *root_dir, const char *old_folder, const char *id,
+                       const char *new_folder, char *new_id_out, size_t new_id_sz) {
+    if (!old_folder) old_folder = "";
+    if (!new_folder) new_folder = "";
+    if (strcmp(old_folder, new_folder) == 0) return false;
+
+    char old_dir[512], new_dir[512];
+    build_dir_path(old_dir, sizeof(old_dir), root_dir, old_folder);
+    build_dir_path(new_dir, sizeof(new_dir), root_dir, new_folder);
+    mkdir_p(new_dir);
+
+    char old_path[512], new_path[512], dest_id[64];
+    snprintf(old_path, sizeof(old_path), "%s/%s.enote", old_dir, id);
+    snprintf(dest_id, sizeof(dest_id), "%s", id);
+    snprintf(new_path, sizeof(new_path), "%s/%s.enote", new_dir, dest_id);
+
+    struct stat st;
+    if (stat(new_path, &st) == 0) {
+        char dummy_title[64];
+        storage_next_id(root_dir, new_folder, dest_id, sizeof(dest_id), dummy_title, sizeof(dummy_title));
+        snprintf(new_path, sizeof(new_path), "%s/%s.enote", new_dir, dest_id);
+    }
+
+    if (rename(old_path, new_path) != 0) return false;
+    if (new_id_out && new_id_sz > 0) snprintf(new_id_out, new_id_sz, "%s", dest_id);
+    return true;
+}
+
 bool storage_delete(const char *root_dir, const char *folder, const char *id) {
     char dir_path[512], path[512];
     build_dir_path(dir_path, sizeof(dir_path), root_dir, folder);
