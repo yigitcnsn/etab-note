@@ -263,7 +263,12 @@ static void draw_sidebar(App *app) {
     }
 
     int fy = fb->h - 66;
-    draw_button(fb, tp, 14, fy - 54, SIDEBAR_W - 30, 44, "RENAME NOTE", false, false);
+    if (app->cur_folder[0] != '\0') {
+        draw_button(fb, tp, 14, fy - 54, 140, 44, "REN NOTE", false, false);
+        draw_button(fb, tp, 162, fy - 54, 142, 44, "REN DIR", false, false);
+    } else {
+        draw_button(fb, tp, 14, fy - 54, SIDEBAR_W - 30, 44, "RENAME NOTE", false, false);
+    }
     const char *del_lbl = app->confirm_delete ? "SURE?" :
         ((app->cur_folder[0] != '\0' && app->note_count == 0) ? "DEL DIR" : "DELETE");
     draw_button(fb, tp, 14, fy, 140, 48, del_lbl, false, app->confirm_delete);
@@ -411,16 +416,47 @@ static void toggle_sleep(App *app);
 
 static bool handle_ui_tap(App *app, int x, int y) {
     if (app->settings.open || app->settings.osk.open) {
-        char renamed[64] = {0};
-        int act = settings_handle_tap(&app->fb, &app->settings, x, y, renamed, sizeof(renamed));
+        char text[64] = {0};
+        OskPurpose purpose = OSK_NONE;
+        int act = settings_handle_tap(&app->fb, &app->settings, x, y, &purpose, text, sizeof(text));
         if (act == SET_ACT_SLEEP) {
             toggle_sleep(app);
             return true;
         }
-        if (act == SET_ACT_RENAMED && renamed[0]) {
-            snprintf(app->doc.title, sizeof(app->doc.title), "%s", renamed);
-            app->doc.dirty = true;
-            save_current(app);
+        if (act == SET_ACT_OSK_DONE) {
+            if (purpose == OSK_RENAME_NOTE && text[0]) {
+                snprintf(app->doc.title, sizeof(app->doc.title), "%s", text);
+                app->doc.dirty = true;
+                save_current(app);
+            } else if (purpose == OSK_NEW_NOTE) {
+                save_current(app);
+                char id[64], def_title[64];
+                PaperKind pk = (PaperKind)app->doc.paper;
+                ThemeKind tk = (ThemeKind)app->doc.theme;
+                storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), def_title, sizeof(def_title));
+                const char *title = text[0] ? text : def_title;
+                doc_free(&app->doc);
+                doc_init_new(&app->doc, app->cur_folder, id, title, pk, tk);
+                storage_save(STORAGE_DIR, &app->doc);
+                app->doc.dirty = false;
+                refresh_browser(app);
+                app->sidebar_open = false;
+            } else if (purpose == OSK_NEW_FOLDER) {
+                char fname[64] = {0};
+                if (storage_create_folder(STORAGE_DIR, text, fname, sizeof(fname))) {
+                    snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", fname);
+                    refresh_browser(app);
+                }
+            } else if (purpose == OSK_RENAME_FOLDER && text[0]) {
+                char new_name[64] = {0};
+                if (storage_rename_folder(STORAGE_DIR, app->cur_folder, text, new_name, sizeof(new_name))) {
+                    if (strcmp(app->doc.folder, app->cur_folder) == 0) {
+                        snprintf(app->doc.folder, sizeof(app->doc.folder), "%s", new_name);
+                    }
+                    snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", new_name);
+                    refresh_browser(app);
+                }
+            }
         }
         if (act != SET_ACT_NONE) {
             redraw_all(app);
@@ -568,30 +604,18 @@ static bool handle_ui_tap(App *app, int x, int y) {
 
         int ry = TOOLBAR_H + 14;
         if (app->cur_folder[0] == '\0') {
-            /* [+ NOTE] */
+            /* [+ NOTE] -> open keyboard for name */
             if (hit(x, y, 14, ry, 140, 44)) {
-                save_current(app);
-                char id[64], title[64];
-                PaperKind pk = (PaperKind)app->doc.paper;
-                ThemeKind tk = (ThemeKind)app->doc.theme;
-                storage_next_id(STORAGE_DIR, "", id, sizeof(id), title, sizeof(title));
-                doc_free(&app->doc);
-                doc_init_new(&app->doc, "", id, title, pk, tk);
-                storage_save(STORAGE_DIR, &app->doc);
-                app->doc.dirty = false;
-                refresh_browser(app);
-                app->sidebar_open = false;
+                char id[64], def_title[64];
+                storage_next_id(STORAGE_DIR, "", id, sizeof(id), def_title, sizeof(def_title));
+                settings_open_osk(&app->settings, OSK_NEW_NOTE, "NEW NOTE NAME:", def_title, NULL);
                 redraw_all(app);
                 return true;
             }
-            /* [+ FOLDER] */
+            /* [+ FOLDER] -> open keyboard for folder name */
             if (hit(x, y, 162, ry, 142, 44)) {
-                char fname[64] = {0};
-                if (storage_create_folder(STORAGE_DIR, fname, sizeof(fname))) {
-                    snprintf(app->cur_folder, sizeof(app->cur_folder), "%s", fname);
-                    refresh_browser(app);
-                    draw_sidebar(app);
-                }
+                settings_open_osk(&app->settings, OSK_NEW_FOLDER, "NEW FOLDER NAME:", "", NULL);
+                redraw_all(app);
                 return true;
             }
             ry += 58;
@@ -605,27 +629,32 @@ static bool handle_ui_tap(App *app, int x, int y) {
                 return true;
             }
             ry += 52;
-            /* [+ NEW NOTE HERE] */
+            /* [+ NEW NOTE HERE] -> open keyboard for name */
             if (hit(x, y, 14, ry, SIDEBAR_W - 30, 44)) {
-                save_current(app);
-                char id[64], title[64];
-                PaperKind pk = (PaperKind)app->doc.paper;
-                ThemeKind tk = (ThemeKind)app->doc.theme;
-                storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), title, sizeof(title));
-                doc_free(&app->doc);
-                doc_init_new(&app->doc, app->cur_folder, id, title, pk, tk);
-                storage_save(STORAGE_DIR, &app->doc);
-                app->doc.dirty = false;
-                refresh_browser(app);
-                app->sidebar_open = false;
+                char id[64], def_title[64];
+                storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), def_title, sizeof(def_title));
+                settings_open_osk(&app->settings, OSK_NEW_NOTE, "NEW NOTE NAME:", def_title, NULL);
                 redraw_all(app);
                 return true;
             }
             ry += 56;
         }
 
-        /* RENAME NOTE button above footer */
-        if (hit(x, y, 14, fy - 54, SIDEBAR_W - 30, 44)) {
+        /* RENAME buttons above footer */
+        if (app->cur_folder[0] != '\0') {
+            if (hit(x, y, 14, fy - 54, 140, 44)) {
+                settings_open_osk(&app->settings, OSK_RENAME_NOTE, "RENAME CURRENT NOTE:", app->doc.title, NULL);
+                redraw_all(app);
+                return true;
+            }
+            if (hit(x, y, 162, fy - 54, 142, 44)) {
+                char fdisp[64];
+                pretty_folder_name(app->cur_folder, fdisp, sizeof(fdisp));
+                settings_open_osk(&app->settings, OSK_RENAME_FOLDER, "RENAME FOLDER:", fdisp, NULL);
+                redraw_all(app);
+                return true;
+            }
+        } else if (hit(x, y, 14, fy - 54, SIDEBAR_W - 30, 44)) {
             settings_open_osk(&app->settings, OSK_RENAME_NOTE, "RENAME CURRENT NOTE:", app->doc.title, NULL);
             redraw_all(app);
             return true;

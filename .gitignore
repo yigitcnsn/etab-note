@@ -5,6 +5,8 @@ backups/
 
 # Build artifacts
 build/
+__pycache__/
+*.pyc
 *.o
 *.elf
 *.tmp

@@ -227,3 +227,15 @@ Every action and command executed on the Mac and tablet is logged here chronolog
 - **Result:**
   - `build/bootimg_noteos.img`: `6154240` bytes (`58.7%` of 10 MB partition), SHA-256 `afb930bb30a4433db8c25263cbc4eb68991472caca3b724364c33e6a2142c7d4` — verified byte-for-byte after flashing to `/dev/bootimg`.
   - TWRP in `/dev/recovery` left untouched; stock `bootimg.img` backed up both on Mac and `/data/noteos/stock_bootimg.img`.
+
+### Step 18: Add naming & renaming for folders and drawings (`v1.3`)
+- **Changes:**
+  - `src/noteos.h`, `src/storage.c`, `src/settings.c`, `src/main.c`:
+    - `+ FOLDER` and `+ NOTE` now open the on-screen QWERTY keyboard (with a new `CLR` key) so you can name folders and drawings at creation time.
+    - Added `REN DIR` inside folders alongside `REN NOTE` / `RENAME NOTE`.
+    - Sanitized custom folder names safely for filesystem storage.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  ```
+- **Result:** Compiled cleanly (`0` warnings, `133 KB` static ARMv7 binary) — ready to push straight to `/data/noteos/noteos` (instant live upgrade, no reflashing needed).

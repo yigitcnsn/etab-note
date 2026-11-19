@@ -313,22 +313,56 @@ int storage_list_folders(const char *root_dir, FolderMeta *out, int max_folders)
     return n;
 }
 
-bool storage_create_folder(const char *root_dir, char *name_out, size_t name_sz) {
-    FolderMeta folders[MAX_FOLDERS];
-    int n = storage_list_folders(root_dir, folders, MAX_FOLDERS);
-    int max_num = 0;
-    for (int i = 0; i < n; i++) {
-        int num = 0;
-        if (sscanf(folders[i].name, "folder_%d", &num) == 1 && num > max_num) {
-            max_num = num;
+static void sanitize_folder_name(const char *in, char *out, size_t sz) {
+    size_t j = 0;
+    for (size_t i = 0; in && in[i] && j + 1 < sz; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (isalnum(c) || c == '-' || c == '_') {
+            out[j++] = (char)c;
+        } else if (c == ' ') {
+            out[j++] = '_';
         }
     }
-    char name[64];
-    snprintf(name, sizeof(name), "folder_%02d", max_num + 1);
+    while (j > 0 && out[j - 1] == '_') j--;
+    out[j] = '\0';
+}
+
+bool storage_create_folder(const char *root_dir, const char *display_name, char *name_out, size_t name_sz) {
+    char name[64] = {0};
+    sanitize_folder_name(display_name, name, sizeof(name));
+    if (name[0] == '\0') {
+        FolderMeta folders[MAX_FOLDERS];
+        int n = storage_list_folders(root_dir, folders, MAX_FOLDERS);
+        int max_num = 0;
+        for (int i = 0; i < n; i++) {
+            int num = 0;
+            if (sscanf(folders[i].name, "folder_%d", &num) == 1 && num > max_num) {
+                max_num = num;
+            }
+        }
+        snprintf(name, sizeof(name), "folder_%02d", max_num + 1);
+    }
     char path[512];
     snprintf(path, sizeof(path), "%s/%s", root_dir, name);
     if (mkdir(path, 0755) != 0 && errno != EEXIST) return false;
     if (name_out && name_sz > 0) snprintf(name_out, name_sz, "%s", name);
+    return true;
+}
+
+bool storage_rename_folder(const char *root_dir, const char *old_name, const char *new_display,
+                           char *new_name_out, size_t new_name_sz) {
+    if (!old_name || !old_name[0]) return false;
+    char clean[64] = {0};
+    sanitize_folder_name(new_display, clean, sizeof(clean));
+    if (clean[0] == '\0' || strcmp(clean, old_name) == 0) return false;
+
+    char old_path[512], new_path[512];
+    snprintf(old_path, sizeof(old_path), "%s/%s", root_dir, old_name);
+    snprintf(new_path, sizeof(new_path), "%s/%s", root_dir, clean);
+    struct stat st;
+    if (stat(new_path, &st) == 0) return false; /* already exists */
+    if (rename(old_path, new_path) != 0) return false;
+    if (new_name_out && new_name_sz > 0) snprintf(new_name_out, new_name_sz, "%s", clean);
     return true;
 }
 

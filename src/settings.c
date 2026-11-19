@@ -321,15 +321,17 @@ static void render_osk(FB *fb, const ThemePalette *tp, const OskState *osk) {
     int bksp_x = k3_start + 7 * (kw + gap);
     draw_btn(fb, tp, bksp_x, ry3, rx0 + 10 * kw + 9 * gap - bksp_x, kh, "BKSP", false, false);
 
-    /* Row 4: SYM, SPACE, CANCEL, OK */
+    /* Row 4: SYM, CLR, SPACE, CANCEL, OK */
     int ry4 = ry3 + kh + gap + 8;
-    draw_btn(fb, tp, rx0, ry4, 210, kh, osk->symbols ? "ABC" : "!@#", osk->symbols, false);
-    draw_btn(fb, tp, rx0 + 224, ry4, 680, kh, "SPACE", false, false);
+    draw_btn(fb, tp, rx0, ry4, 150, kh, osk->symbols ? "ABC" : "!@#", osk->symbols, false);
+    draw_btn(fb, tp, rx0 + 162, ry4, 140, kh, "CLR", false, false);
+    draw_btn(fb, tp, rx0 + 314, ry4, 590, kh, "SPACE", false, false);
     draw_btn(fb, tp, rx0 + 918, ry4, 260, kh, "CANCEL", false, false);
     draw_btn(fb, tp, rx0 + 1192, ry4, rx0 + 10 * kw + 9 * gap - (rx0 + 1192), kh, "OK", true, false);
 }
 
-static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y, char *out_text, size_t out_sz) {
+static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
+                          OskPurpose *out_purpose, char *out_text, size_t out_sz) {
     OskState *osk = &st->osk;
     int bx = 180, by = 220, bw = fb->w - 360;
     int kw = 136, kh = 92, gap = 12;
@@ -381,11 +383,16 @@ static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y, char *out_tex
         if (osk->len > 0) osk->buf[--osk->len] = '\0';
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, rx0, ry4, 210, kh)) {
+    if (hit_r(x, y, rx0, ry4, 150, kh)) {
         osk->symbols = !osk->symbols;
         return SET_ACT_REDRAW;
     }
-    if (hit_r(x, y, rx0 + 224, ry4, 680, kh)) {
+    if (hit_r(x, y, rx0 + 162, ry4, 140, kh)) {
+        osk->len = 0;
+        osk->buf[0] = '\0';
+        return SET_ACT_REDRAW;
+    }
+    if (hit_r(x, y, rx0 + 314, ry4, 590, kh)) {
         if (osk->len + 1 < (int)sizeof(osk->buf)) {
             osk->buf[osk->len++] = ' ';
             osk->buf[osk->len] = '\0';
@@ -406,11 +413,10 @@ static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y, char *out_tex
         if (p == OSK_WIFI_PASS) {
             connect_wifi_network(st, ssid, text);
             return SET_ACT_REDRAW;
-        } else if (p == OSK_RENAME_NOTE) {
-            if (out_text && out_sz > 0) snprintf(out_text, out_sz, "%s", text);
-            return SET_ACT_RENAMED;
         }
-        return SET_ACT_REDRAW;
+        if (out_purpose) *out_purpose = p;
+        if (out_text && out_sz > 0) snprintf(out_text, out_sz, "%s", text);
+        return SET_ACT_OSK_DONE;
     }
     return SET_ACT_NONE;
 }
@@ -552,9 +558,10 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
     }
 }
 
-int settings_handle_tap(FB *fb, SettingsState *st, int x, int y, char *out_text, size_t out_sz) {
+int settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
+                        OskPurpose *out_purpose, char *out_text, size_t out_sz) {
     if (st->osk.open) {
-        return handle_osk_tap(fb, st, x, y, out_text, out_sz);
+        return handle_osk_tap(fb, st, x, y, out_purpose, out_text, out_sz);
     }
     if (!st->open) return SET_ACT_NONE;
 

@@ -141,7 +141,10 @@ typedef struct {
 typedef enum {
     OSK_NONE = 0,
     OSK_WIFI_PASS = 1,
-    OSK_RENAME_NOTE = 2
+    OSK_RENAME_NOTE = 2,
+    OSK_NEW_NOTE = 3,
+    OSK_NEW_FOLDER = 4,
+    OSK_RENAME_FOLDER = 5
 } OskPurpose;
 
 typedef struct {
@@ -168,11 +171,11 @@ typedef struct {
 } SettingsState;
 
 /* Return flags from settings_handle_tap */
-#define SET_ACT_NONE      0
-#define SET_ACT_REDRAW    1
-#define SET_ACT_CLOSE     2
-#define SET_ACT_SLEEP     3
-#define SET_ACT_RENAMED   4
+#define SET_ACT_NONE       0
+#define SET_ACT_REDRAW     1
+#define SET_ACT_CLOSE      2
+#define SET_ACT_SLEEP      3
+#define SET_ACT_OSK_DONE   4
 
 extern const uint32_t SWATCH_RGB[5];
 extern const ThemePalette THEMES[THEME_COUNT];
@@ -228,7 +231,9 @@ void doc_free(NoteDoc *doc);
 
 int  storage_init(const char *root_dir);
 int  storage_list_folders(const char *root_dir, FolderMeta *out, int max_folders);
-bool storage_create_folder(const char *root_dir, char *name_out, size_t name_sz);
+bool storage_create_folder(const char *root_dir, const char *display_name, char *name_out, size_t name_sz);
+bool storage_rename_folder(const char *root_dir, const char *old_name, const char *new_display,
+                           char *new_name_out, size_t new_name_sz);
 bool storage_delete_folder(const char *root_dir, const char *folder);
 int  storage_list(const char *root_dir, const char *folder, NoteMeta *out, int max_notes);
 bool storage_save(const char *root_dir, const NoteDoc *doc);
@@ -243,6 +248,7 @@ void settings_scan_wifi(SettingsState *st);
 void settings_open_osk(SettingsState *st, OskPurpose purpose, const char *prompt,
                        const char *initial, const char *target_ssid);
 void settings_render(FB *fb, ThemeKind theme, const SettingsState *st);
-int  settings_handle_tap(FB *fb, SettingsState *st, int x, int y, char *out_text, size_t out_sz);
+int  settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
+                         OskPurpose *out_purpose, char *out_text, size_t out_sz);
 
 #endif
