@@ -156,6 +156,11 @@ typedef struct {
     int len;
     bool shift;
     bool symbols;
+    /* Visual press feedback for instant responsiveness */
+    int hi_x, hi_y, hi_w, hi_h;
+    char hi_label[12];
+    bool hi_active;
+    bool need_full_keys;
 } OskState;
 
 typedef struct {
@@ -176,6 +181,7 @@ typedef struct {
 #define SET_ACT_CLOSE      2
 #define SET_ACT_SLEEP      3
 #define SET_ACT_OSK_DONE   4
+#define SET_ACT_OSK_FAST   5
 
 extern const uint32_t SWATCH_RGB[5];
 extern const ThemePalette THEMES[THEME_COUNT];
@@ -250,6 +256,8 @@ void settings_scan_wifi(SettingsState *st);
 void settings_open_osk(SettingsState *st, OskPurpose purpose, const char *prompt,
                        const char *initial, const char *target_ssid);
 void settings_render(FB *fb, ThemeKind theme, const SettingsState *st);
+void settings_render_osk_fast(FB *fb, ThemeKind theme, SettingsState *st);
+void settings_osk_release(FB *fb, ThemeKind theme, SettingsState *st);
 int  settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
                          OskPurpose *out_purpose, char *out_text, size_t out_sz);
 

@@ -265,19 +265,22 @@ static const char *ROW1_SYM = "-_=+[]{};:";
 static const char *ROW2_SYM = "'\",.<>/?\\";
 static const char *ROW3_SYM = "|~`!@#?";
 
+static void render_osk_textbox(FB *fb, const ThemePalette *tp, const OskState *osk) {
+    int bx = 180, by = 220, bw = fb->w - 360;
+    fb_fill_rect(fb, bx + 28, by + 62, bw - 56, 62, tp->bg);
+    fb_stroke_rect(fb, bx + 28, by + 62, bw - 56, 62, 2, tp->bar_border);
+    char disp[140];
+    snprintf(disp, sizeof(disp), "%s_", osk->buf);
+    fb_draw_text(fb, bx + 44, by + 84, disp, tp->bar_text, 2);
+}
+
 static void render_osk(FB *fb, const ThemePalette *tp, const OskState *osk) {
     int bx = 180, by = 220, bw = fb->w - 360, bh = 740;
     fb_fill_rect(fb, bx, by, bw, bh, tp->sidebar_bg);
     fb_stroke_rect(fb, bx, by, bw, bh, 3, tp->accent);
 
     fb_draw_text(fb, bx + 28, by + 24, osk->prompt, tp->accent, 2);
-
-    /* Text display box */
-    fb_fill_rect(fb, bx + 28, by + 62, bw - 56, 62, tp->bg);
-    fb_stroke_rect(fb, bx + 28, by + 62, bw - 56, 62, 2, tp->bar_border);
-    char disp[140];
-    snprintf(disp, sizeof(disp), "%s_", osk->buf);
-    fb_draw_text(fb, bx + 44, by + 84, disp, tp->bar_text, 2);
+    render_osk_textbox(fb, tp, osk);
 
     const char *r0 = osk->symbols ? ROW0_SYM : ROW0_ALPHA;
     const char *r1 = osk->symbols ? ROW1_SYM : ROW1_ALPHA;
@@ -330,6 +333,35 @@ static void render_osk(FB *fb, const ThemePalette *tp, const OskState *osk) {
     draw_btn(fb, tp, rx0 + 1192, ry4, rx0 + 10 * kw + 9 * gap - (rx0 + 1192), kh, "OK", true, false);
 }
 
+static void osk_set_highlight(OskState *osk, int x, int y, int w, int h, const char *lbl) {
+    osk->hi_x = x; osk->hi_y = y; osk->hi_w = w; osk->hi_h = h;
+    snprintf(osk->hi_label, sizeof(osk->hi_label), "%s", lbl);
+    osk->hi_active = true;
+}
+
+void settings_render_osk_fast(FB *fb, ThemeKind theme, SettingsState *st) {
+    if (!st->osk.open) return;
+    const ThemePalette *tp = &THEMES[theme];
+    if (st->osk.need_full_keys) {
+        st->osk.need_full_keys = false;
+        render_osk(fb, tp, &st->osk);
+    } else {
+        render_osk_textbox(fb, tp, &st->osk);
+        if (st->osk.hi_active) {
+            draw_btn(fb, tp, st->osk.hi_x, st->osk.hi_y, st->osk.hi_w, st->osk.hi_h,
+                     st->osk.hi_label, true, false);
+        }
+    }
+}
+
+void settings_osk_release(FB *fb, ThemeKind theme, SettingsState *st) {
+    if (!st->osk.open || !st->osk.hi_active) return;
+    const ThemePalette *tp = &THEMES[theme];
+    draw_btn(fb, tp, st->osk.hi_x, st->osk.hi_y, st->osk.hi_w, st->osk.hi_h,
+             st->osk.hi_label, false, false);
+    st->osk.hi_active = false;
+}
+
 static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
                           OskPurpose *out_purpose, char *out_text, size_t out_sz) {
     OskState *osk = &st->osk;
@@ -345,24 +377,30 @@ static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
     const char *r3 = osk->symbols ? ROW3_SYM : ROW3_ALPHA;
 
     char ch = 0;
+    int hx = 0, hy = 0, hw = kw, hh = kh;
     int ry1 = start_y + kh + gap;
     int ry2 = ry1 + kh + gap;
     int ry3 = ry2 + kh + gap;
     int ry4 = ry3 + kh + gap + 8;
 
     for (int i = 0; i < 10; i++) {
-        if (hit_r(x, y, rx0 + i * (kw + gap), start_y, kw, kh)) ch = r0[i];
-        if (hit_r(x, y, rx0 + i * (kw + gap), ry1, kw, kh)) ch = r1[i];
+        int kx = rx0 + i * (kw + gap);
+        if (hit_r(x, y, kx, start_y, kw, kh)) { ch = r0[i]; hx = kx; hy = start_y; }
+        if (hit_r(x, y, kx, ry1, kw, kh))     { ch = r1[i]; hx = kx; hy = ry1; }
     }
     for (int i = 0; i < 9; i++) {
-        if (hit_r(x, y, rx2 + i * (kw + gap), ry2, kw, kh)) ch = r2[i];
+        int kx = rx2 + i * (kw + gap);
+        if (hit_r(x, y, kx, ry2, kw, kh))     { ch = r2[i]; hx = kx; hy = ry2; }
     }
     int k3_start = rx0 + kw + 40 + gap;
     for (int i = 0; i < 7; i++) {
-        if (hit_r(x, y, k3_start + i * (kw + gap), ry3, kw, kh)) ch = r3[i];
+        int kx = k3_start + i * (kw + gap);
+        if (hit_r(x, y, kx, ry3, kw, kh))     { ch = r3[i]; hx = kx; hy = ry3; }
     }
 
     if (ch) {
+        char lbl[2] = { ch, '\0' };
+        osk_set_highlight(osk, hx, hy, hw, hh, lbl);
         if (!osk->symbols && !osk->shift && ch >= 'A' && ch <= 'Z') {
             ch = (char)(ch - 'A' + 'a');
         }
@@ -370,37 +408,45 @@ static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
             osk->buf[osk->len++] = ch;
             osk->buf[osk->len] = '\0';
         }
-        return SET_ACT_REDRAW;
+        return SET_ACT_OSK_FAST;
     }
 
     if (hit_r(x, y, rx0, ry3, kw + 40, kh)) {
         osk->shift = !osk->shift;
-        return SET_ACT_REDRAW;
+        osk->hi_active = false;
+        osk->need_full_keys = true;
+        return SET_ACT_OSK_FAST;
     }
     int bksp_x = k3_start + 7 * (kw + gap);
     int bksp_w = rx0 + 10 * kw + 9 * gap - bksp_x;
     if (hit_r(x, y, bksp_x, ry3, bksp_w, kh)) {
+        osk_set_highlight(osk, bksp_x, ry3, bksp_w, kh, "BKSP");
         if (osk->len > 0) osk->buf[--osk->len] = '\0';
-        return SET_ACT_REDRAW;
+        return SET_ACT_OSK_FAST;
     }
     if (hit_r(x, y, rx0, ry4, 150, kh)) {
         osk->symbols = !osk->symbols;
-        return SET_ACT_REDRAW;
+        osk->hi_active = false;
+        osk->need_full_keys = true;
+        return SET_ACT_OSK_FAST;
     }
     if (hit_r(x, y, rx0 + 162, ry4, 140, kh)) {
+        osk_set_highlight(osk, rx0 + 162, ry4, 140, kh, "CLR");
         osk->len = 0;
         osk->buf[0] = '\0';
-        return SET_ACT_REDRAW;
+        return SET_ACT_OSK_FAST;
     }
     if (hit_r(x, y, rx0 + 314, ry4, 590, kh)) {
+        osk_set_highlight(osk, rx0 + 314, ry4, 590, kh, "SPACE");
         if (osk->len + 1 < (int)sizeof(osk->buf)) {
             osk->buf[osk->len++] = ' ';
             osk->buf[osk->len] = '\0';
         }
-        return SET_ACT_REDRAW;
+        return SET_ACT_OSK_FAST;
     }
     if (hit_r(x, y, rx0 + 918, ry4, 260, kh)) {
         osk->open = false;
+        osk->hi_active = false;
         return SET_ACT_REDRAW;
     }
     int ok_w = rx0 + 10 * kw + 9 * gap - (rx0 + 1192);
@@ -410,6 +456,7 @@ static int handle_osk_tap(FB *fb, SettingsState *st, int x, int y,
         snprintf(text, sizeof(text), "%s", osk->buf);
         snprintf(ssid, sizeof(ssid), "%s", osk->target_ssid);
         osk->open = false;
+        osk->hi_active = false;
         if (p == OSK_WIFI_PASS) {
             connect_wifi_network(st, ssid, text);
             return SET_ACT_REDRAW;

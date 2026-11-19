@@ -553,6 +553,10 @@ static bool handle_ui_tap(App *app, int x, int y) {
                 }
             }
         }
+        if (act == SET_ACT_OSK_FAST) {
+            settings_render_osk_fast(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
+            return true;
+        }
         if (act == SET_ACT_CLOSE) {
             prefs_save(app);
         }
@@ -993,6 +997,7 @@ int main(void) {
                 if (ev.type == EV_ABS) {
                     if (ev.code == ABS_MT_POSITION_X || ev.code == ABS_X) app.touch_x = ev.value;
                     else if (ev.code == ABS_MT_POSITION_Y || ev.code == ABS_Y) app.touch_y = ev.value;
+                    else if (ev.code == ABS_MT_TRACKING_ID && ev.value < 0) app.touch_down = false;
                 } else if (ev.type == EV_KEY && ev.code == BTN_TOUCH) {
                     app.touch_down = (ev.value != 0);
                 } else if (ev.type == EV_SYN && ev.code == SYN_REPORT) {
@@ -1000,6 +1005,9 @@ int main(void) {
                         if (handle_ui_tap(&app, app.touch_x, app.touch_y)) {
                             need_present = true;
                         }
+                    } else if (!app.touch_down && app.touch_was_down && app.settings.osk.open) {
+                        settings_osk_release(&app.fb, (ThemeKind)app.doc.theme, &app.settings);
+                        need_present = true;
                     }
                     app.touch_was_down = app.touch_down;
                 }
@@ -1037,6 +1045,9 @@ int main(void) {
                     if (app.settings.open || app.settings.osk.open) {
                         if (down && !app.pen_was_down) {
                             handle_ui_tap(&app, (int)sx, (int)sy);
+                            need_present = true;
+                        } else if (!down && app.pen_was_down && app.settings.osk.open) {
+                            settings_osk_release(&app.fb, (ThemeKind)app.doc.theme, &app.settings);
                             need_present = true;
                         }
                         app.pen_was_down = down;

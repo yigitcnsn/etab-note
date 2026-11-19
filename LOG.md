@@ -258,3 +258,28 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos
   ```
 - **Result:** Compiled cleanly (`0` warnings, `137 KB` static ARMv7). Waiting for tablet IP or USB data connection to push `/data/noteos/noteos`.
+
+### Step 21: Verify standalone OS boot over Wi-Fi ADB (`192.168.1.189:5555`) & hot-update to `v1.5`
+- **Commands:**
+  ```bash
+  adb disconnect && adb connect 192.168.1.189:5555
+  adb shell "ps; cat /proc/meminfo | head -n 4"
+  adb push /Volumes/X/developer/etab5-noteos/build/noteos /data/noteos/noteos.new
+  adb shell "mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos && killall noteos"
+  ```
+- **Result:**
+  - Connected automatically over Wi-Fi ADB (`192.168.1.189:5555`) as root with **0% Android running**.
+  - **Memory:** `1951 MB free / 2011 MB total` (~60 MB used total; `noteos` = `9.2 MB`, `noteos-dhcp` = `4 KB`).
+  - Hot-updated `/data/noteos/noteos` to `v1.5` (`140 KB` in `0.002s`); `init` auto-respawned `v1.5` immediately.
+
+### Step 22: Fast partial-redraw on-screen keyboard + key press highlight (`v1.5.1`)
+- **Fix:** Previously each keypress called `redraw_all()` (re-rendering the entire 1920×1200 canvas + all strokes).
+- **Changes:**
+  - `src/noteos.h`, `src/settings.c`, `src/main.c`: Added `SET_ACT_OSK_FAST`, `settings_render_osk_fast()` (redraws only the text box + pressed key), and `settings_osk_release()` (blue press-down highlight that releases cleanly on touch/stylus up).
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  adb push /Volumes/X/developer/etab5-noteos/build/noteos /data/noteos/noteos.new
+  adb shell "mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos && killall noteos"
+  ```
+- **Result:** Hot-updated live on `192.168.1.189:5555` (`142 KB`).
