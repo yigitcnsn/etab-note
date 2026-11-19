@@ -13,6 +13,7 @@ Android (`zygote`, `surfaceflinger`, `system_server`, Dalvik/ART) is completely 
 - **Standalone OS Settings (`SET`):** Native Wi-Fi scanner/connector (`wpa_cli`) with fast partial-redraw on-screen QWERTY keyboard, brightness control, live battery/storage diagnostics, ADB-over-Wi-Fi control (`:5555`), and sleep/reboot/TWRP/power-off controls.
 - **Standalone DHCPv4 Daemon:** Custom 28 KB static RFC 2131 DHCP client (`noteos-dhcp`) bringing up Wi-Fi automatically on boot without Android.
 - **Zero-Config `etab.local` & Wi-Fi Drop:** Built-in mDNS responder (`etab.local`) + HTTP Drop server (`http://etab.local:8080`) to paste images or text from iPhone, iPad, or Mac straight onto the current note page (movable, resizable, and annotatable with stylus).
+- **Obsidian-Style Markdown Visualizer & Engram iCloud Sync:** Native `.md` reader with YAML frontmatter, headings, tappable `- [ ]` / `- [x]` checklists, code blocks, blockquotes, nested folder navigation, Turkish UTF-8 glyph support, and two-way sync with iCloud `Engram Notes` (`./scripts/sync_engram.py`).
 
 ## Project Structure
 ```text
@@ -63,6 +64,10 @@ make bootimg
 # Drop current macOS clipboard (image or text) or an image file onto the tablet
 ./scripts/drop.sh
 ./scripts/drop.sh photo.png
+
+# Sync with macOS iCloud Engram Notes (--fresh wipes tablet notes first)
+./scripts/sync_engram.py --fresh
+./scripts/sync_engram.py
 ```
 
 ## Roadmap

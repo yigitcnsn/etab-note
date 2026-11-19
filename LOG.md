@@ -324,3 +324,16 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos deploy
   ```
 - **Result:** Built cleanly (`0` warnings under `-Werror`, `217 KB`) and hot-deployed over `etab.local:5555`.
+
+### Step 26: Add Obsidian-style Markdown visualizer, nested folders, Turkish UTF-8 font & Engram iCloud sync
+- **Changes:**
+  - `src/fb.c`: Expanded 5×7 bitmap font to full ASCII `32..126` (lowercase `a..z`) + UTF-8 Turkish character decoder (`Ç Ğ İ Ö Ş Ü ç ğ ı ö ş ü`).
+  - `include/md.h`, `src/md.c`: Added Obsidian-style Markdown visualizer (`MdDoc`) rendering YAML frontmatter (`title`, `tags`), `# H1`/`## H2`/`### H3`, tappable `- [ ]` / `- [x]` checkboxes (with checkmark & strikethrough + live atomic save), bullets, blockquotes, fenced code blocks, dividers, `[[wikilinks]]`, smooth finger-drag scrolling, and `+ TASK` / `+ LINE` quick append.
+  - `src/storage.c`, `src/ui.c`, `src/app.c`: Upgraded `NOTES` sidebar to browse arbitrary nested folder trees (`< UP`, `+DRAW`, `+MD`, `+DIR`, `^ MORE` / `v MORE` pagination) showing folders, `.md` notes, and `.enote` drawings together.
+  - `scripts/sync_engram.py`: Two-way sync script between `~/Library/Mobile Documents/com~apple~CloudDocs/Engram/Engram Notes` and `/data/noteos/notes` on `etab.local:5555` (`--fresh` clean sync + incremental two-way `.md` sync).
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos
+  make -C /Volumes/X/developer/etab5-noteos deploy
+  ./scripts/sync_engram.py --fresh
+  ```
