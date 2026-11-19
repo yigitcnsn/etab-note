@@ -283,3 +283,17 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   adb shell "mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos && killall noteos"
   ```
 - **Result:** Hot-updated live on `192.168.1.189:5555` (`142 KB`).
+
+### Step 23: Modular codebase refactor & Conventional Commits
+- **Changes:**
+  - Split monolithic `src/main.c` (`1216` → `60` lines) and `src/noteos.h` into clean, single-responsibility modules under `include/` (`types.h`, `app.h`, `fb.h`, `render.h`, `storage.h`, `prefs.h`, `osk.h`, `settings.h`, `ui.h`, `input.h`) and `src/` (`main.c`, `app.c`, `fb.c`, `render.c`, `storage.c`, `prefs.c`, `osk.c`, `settings.c`, `ui.c`, `input.c`).
+  - Moved standalone DHCP daemon to `daemons/dhcpc.c`, removed obsolete prototype files (`src/proto.c`, `scripts/run_proto.sh`, `scripts/run_noteos.sh`), added `scripts/deploy.sh`.
+  - Upgraded `Makefile` to incremental `.o` + `.d` builds with `-Wall -Wextra -Werror` and `make deploy`.
+  - Updated `README.md` to reflect the new architecture.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos clean && make -C /Volumes/X/developer/etab5-noteos
+  make -C /Volumes/X/developer/etab5-noteos deploy
+  adb shell "ps | grep noteos"
+  ```
+- **Result:** Built cleanly (`0` warnings under `-Werror`, `135 KB` `noteos`, `28 KB` `noteos-dhcp`) and verified running live on tablet.

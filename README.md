@@ -1,49 +1,67 @@
 # E-Tab 5 Bare Note OS (`etab5-noteos`)
 
-A lightweight, bare-Linux note-taking OS built in C for the **General Mobile E-Tab 5** (MediaTek MT8392 / ARMv7, 10.1" 1920×1200 IPS display, Wacom I2C EMR stylus, 2 GB RAM, 32 GB eMMC).
+A standalone, bare-Linux note-taking OS written in C for the **General Mobile E-Tab 5** (MediaTek MT8392 / ARMv7, 10.1" 1920×1200 IPS display, Wacom I2C EMR stylus, 2 GB RAM, 32 GB eMMC).
 
-Instead of running bloated Android, `noteos` renders directly to the Linux framebuffer (`/dev/graphics/fb0`) and reads raw input events from the Wacom EMR digitizer (`/dev/input/event1`), capacitive touch (`/dev/input/event4`), and hardware keys (`/dev/input/event0`).
+Android (`zygote`, `surfaceflinger`, `system_server`, Dalvik/ART) is completely disabled at boot. The device boots directly from the stock Linux 3.4.67 kernel into a ~140 KB static ARMv7 binary rendering to `/dev/graphics/fb0`, using ~60 MB total system RAM (~1.95 GB free).
 
 ## Features
 - **Direct Framebuffer Rendering:** Double-buffered dirty-rect renderer on 1920×1200 ARGB8888 (`/dev/graphics/fb0`).
-- **Wacom EMR Stylus Support:** Sub-pixel coordinates (`21696×13560`), 1024-level pressure sensitivity, hover cursor, flip eraser, and **100% hardware palm rejection** (capacitive touch drives UI buttons only and never draws on canvas).
-- **Stylus Button Radial Menu:** Press the stylus side button for an 8-wedge circular quick menu (`PEN`, `BRUSH`, `PENCIL`, `HI`, `ERASE`, `SIZE`, `UNDO`, `REDO`) + 5-color swatch bar (supports both hold-glide-release and click-tap).
-- **Notebooks, Folders & Multi-Page Storage:** Vector strokes saved atomically in `.enote` files under `/data/noteos/notes/`, with folders, note renaming, unlimited per-page undo/redo, and object eraser.
-- **Themes & Paper Templates:** Light, Parchment, and Obsidian dark themes; Lined, Grid, and Blank paper.
-- **Standalone OS Settings (`SET`):** Native Wi-Fi scanner/connector (`wpa_cli`) with built-in on-screen QWERTY keyboard, brightness control, live battery/storage diagnostics, ADB-over-Wi-Fi control (`:5555`), and sleep/reboot/TWRP/power-off controls.
+- **Wacom EMR Stylus:** Sub-pixel coordinates (`21696×13560`), 1024-level pressure sensitivity, hover cursor, flip eraser, and hardware palm rejection (capacitive touch drives UI buttons only).
+- **Stylus Radial Menu:** Side button opens an 8-wedge circular menu (`PEN`, `BRUSH`, `PENCIL`, `HI`, `ERASE`, `SIZE`, `UNDO`, `REDO`) + 5-color swatch bar (supports hold-glide-release and click-tap).
+- **Notebooks, Folders & Vector Storage:** Atomic `.enote` vector files under `/data/noteos/notes/` with custom-named folders, note renaming, moving notes between folders, multi-page notebooks, object eraser, and unlimited per-page undo/redo.
+- **Persistent Preferences:** Remembers theme (`LIGHT` / `PAPER` / `DARK`), paper template (`LINED` / `GRID` / `BLANK`), active tool/color/size, brightness, and last opened note across reboots.
+- **Standalone OS Settings (`SET`):** Native Wi-Fi scanner/connector (`wpa_cli`) with fast partial-redraw on-screen QWERTY keyboard, brightness control, live battery/storage diagnostics, ADB-over-Wi-Fi control (`:5555`), and sleep/reboot/TWRP/power-off controls.
+- **Standalone DHCPv4 Daemon:** Custom 28 KB static RFC 2131 DHCP client (`noteos-dhcp`) bringing up Wi-Fi automatically on boot without Android.
 
 ## Project Structure
 ```text
+include/
+  types.h       Core enums, themes, stroke/page/doc structs, overlay states
+  app.h         Top-level App state & lifecycle API
+  fb.h          Framebuffer driver, backlight, drawing primitives & 5x7 font
+  render.h      Paper templates, AA ink/brush/pencil/highlighter & radial menu renderer
+  storage.h     Stroke/Page/NoteDoc operations & atomic .enote / folder CRUD
+  prefs.h       Persistent user preferences (/data/noteos/prefs.conf)
+  osk.h         On-screen QWERTY keyboard (partial redraw + press highlight)
+  settings.h    OS Settings page & wpa_cli Wi-Fi management
+  ui.h          Toolbar, folder/note sidebar, move-note picker & radial actions
+  input.h       Wacom EMR, capacitive touch & hardware key event loop
 src/
-  noteos.h      Core data structures & shared interfaces
-  main.c        Input loop (Wacom/touch/keys), UI layout, radial menu, folders
-  fb.c          Framebuffer driver, AA ink/brush/pencil renderer, radial wheel
-  storage.c     Atomic binary .enote vector storage & folder management
-  settings.c    Wi-Fi (wpa_cli), OS settings page & on-screen QWERTY keyboard
-  proto.c       Early single-file hardware validation prototype
+  main.c        Minimal entrypoint & event loop
+  app.c         App lifecycle, auto-save, redraw orchestration & sleep/wake
+  fb.c          Framebuffer mmap, dirty-rect presentation, font & UI primitives
+  render.c      Paper & anti-aliased stroke rasterizer + radial wheel rendering
+  storage.c     Atomic binary .enote storage & folder management
+  prefs.c       Load/save /data/noteos/prefs.conf
+  osk.c         On-screen keyboard renderer & tap handler
+  settings.c    Settings screen, safe exec wpa_cli Wi-Fi & system power controls
+  ui.c          Toolbar, sidebar browser, move picker & tap router
+  input.c       Linux evdev handlers for stylus, touch & physical keys
+daemons/
+  dhcpc.c       Standalone static RFC 2131 DHCPv4 client daemon (noteos-dhcp)
 scripts/
-  run_noteos.sh Push & run live on device with Android paused
-  run_proto.sh  Push & run prototype
+  build_bootimg.py  Pure-Python MediaTek bootimg repacker
+  deploy.sh         Hot-deploy /data/noteos/noteos over ADB
 PLAN.md         Phased roadmap
-LOG.md          Chronological build & hardware discovery log
+LOG.md          Chronological build & hardware command log
 ```
 
-## Building & Running (macOS / Linux)
-Requires `zig` (used as a zero-setup static ARMv7 C cross-compiler) and `adb`:
+## Building & Deploying
+Requires `zig` (static ARMv7 C cross-compiler) and `adb`:
 
 ```bash
-# Build static ARMv7 binary (build/noteos)
+# Build static ARMv7 binaries (build/noteos + build/noteos-dhcp)
 make
 
-# Push to tablet over ADB
-make push
+# Hot-deploy updated noteos binary to the tablet over ADB (no reflash needed)
+make deploy
 
-# Test live on /dev/graphics/fb0 (pauses Android, restores on EXIT)
-./scripts/run_noteos.sh
+# Repack standalone MediaTek bootimg (requires backups/bootimg.img)
+make bootimg
 ```
 
 ## Roadmap
-- [x] Hardware discovery, partition backups (`bootimg` & `recovery`), framebuffer + Wacom prototype
-- [x] Core Note OS (`noteos`): pens/brush/pencil/highlighter, radial menu, folders, multi-page vector storage, themes, OS settings & Wi-Fi
-- [ ] Standalone `bootimg` (strip Android completely, boot straight into `noteos` + Wi-Fi + `adbd :5555`)
-- [ ] Sync bridge with Raspberry Pi & Engram notes + lightweight Home Assistant panel
+- [x] Hardware discovery, SHA-256 verified backups (`bootimg` & `recovery`), framebuffer + Wacom validation
+- [x] Core Note OS (`noteos`): pens/brush/pencil/highlighter, radial menu, folders, move/rename, persistent prefs, OS settings & Wi-Fi
+- [x] Standalone `bootimg` (0% Android, boots straight into `noteos` + Wi-Fi + `noteos-dhcp` + `adbd :5555`)
+- [ ] Raspberry Pi & Engram iCloud sync bridge + lightweight Home Assistant panel
