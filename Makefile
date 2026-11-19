@@ -1,35 +1,48 @@
-CC      = zig cc
-TARGET  = arm-linux-musleabihf
-CFLAGS  = -target $(TARGET) -mcpu=cortex_a7 -static -O2 -s -Wall -Wextra
-LDFLAGS = -lm
+CC      := zig cc
+TARGET  := arm-linux-musleabihf
+CFLAGS  := -target $(TARGET) -mcpu=cortex_a7 -static -O2 -s -Wall -Wextra -Werror -Iinclude -MMD -MP
+LDFLAGS := -lm
 
-BUILD   = build
-SRCS    = src/main.c src/fb.c src/storage.c src/settings.c
+BUILD   := build
+OBJ_DIR := $(BUILD)/obj
 
-.PHONY: all clean push proto bootimg
+SRCS    := src/main.c \
+           src/app.c \
+           src/fb.c \
+           src/render.c \
+           src/storage.c \
+           src/prefs.c \
+           src/osk.c \
+           src/settings.c \
+           src/ui.c \
+           src/input.c
+
+OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS))
+DEPS    := $(OBJS:.o=.d)
+
+.PHONY: all clean deploy bootimg
 
 all: $(BUILD)/noteos $(BUILD)/noteos-dhcp
 
-$(BUILD)/noteos: $(SRCS) src/noteos.h
+$(BUILD)/noteos: $(OBJS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(SRCS) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 
-$(BUILD)/noteos-dhcp: src/dhcpc.c
+$(OBJ_DIR)/%.o: src/%.c
+	@mkdir -p $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/noteos-dhcp: daemons/dhcpc.c
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) src/dhcpc.c -o $@
+	$(CC) $(CFLAGS) $< -o $@
 
-proto: $(BUILD)/proto
-
-$(BUILD)/proto: src/proto.c
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) src/proto.c -o $@ $(LDFLAGS)
-
-push: $(BUILD)/noteos $(BUILD)/noteos-dhcp
-	adb push $(BUILD)/noteos /data/noteos/noteos.new
-	adb shell "su -c 'mkdir -p /data/noteos && mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos'"
+deploy: $(BUILD)/noteos
+	./scripts/deploy.sh
 
 bootimg: all
 	python3 scripts/build_bootimg.py
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(DEPS)
