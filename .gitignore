@@ -1,0 +1,15 @@
+# Device partition backups & unpacked images (keep local)
+backups/
+*.img
+*.bin
+
+# Build artifacts
+build/
+*.o
+*.elf
+*.tmp
+
+# OS / editor files
+.DS_Store
+.vscode/
+.idea/
