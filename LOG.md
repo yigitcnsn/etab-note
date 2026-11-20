@@ -383,3 +383,16 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   ANDROID_SERIAL=FXICBUF821BC8NA ./scripts/deploy.sh
   ```
 - **Result:** Screen immediately unblanked (`brightness=190`) and deployed over USB ADB (`FXICBUF821BC8NA`) with both the Battery Day Tracker chart and instant button-press visual feedback active.
+
+### Step 31: Overhaul Top Toolbar to Eliminate Crowding (19 Controls -> 13 Clean Grouped Controls)
+- **Changes (`src/ui.c`):**
+  - Consolidated `S` / `M` / `L` into a single **`SZ:S` / `SZ:M` / `SZ:L`** cycle button (`84px` wide) next to `PEN / HI / ERASE`.
+  - Replaced separate `>` and `+P` buttons with a smart **`>` / `+>`** page button (shows `>` when navigating existing pages, and `+>` on the last page to add a new page in one tap).
+  - Removed redundant `EDIT` toolbar button (tapping any placed image or text box with a finger already selects it directly) and widened `+T` into a clear **`+TEXT`** button (`84px`).
+  - Removed redundant `NEW DRAW` button from the Markdown top toolbar (since `NOTES` -> `+DRAW` creates drawings) and gave all toolbar groups generous breathing room (`14px` separators, `48px` swatch spacing, `42px` button height).
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ./scripts/deploy.sh
+  ```
+- **Result:** Deployed live over USB ADB (`243 KB`).
