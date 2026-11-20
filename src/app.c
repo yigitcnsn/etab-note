@@ -130,7 +130,7 @@ void app_finish_active_stroke(App *app) {
 
 void app_redraw_all(App *app) {
     if (app->settings.open) {
-        settings_render(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
+        settings_render(&app->fb, (ThemeKind)app->doc.theme, (PaperKind)app->doc.paper, &app->settings);
         return;
     }
     if (app->md.active) {
@@ -153,7 +153,7 @@ void app_redraw_all(App *app) {
                            app->tool, app->size_idx, app->color_idx);
     }
     if (app->settings.osk.open) {
-        settings_render(&app->fb, (ThemeKind)app->doc.theme, &app->settings);
+        settings_render(&app->fb, (ThemeKind)app->doc.theme, (PaperKind)app->doc.paper, &app->settings);
     }
 }
 
@@ -169,12 +169,14 @@ void app_toggle_sleep(App *app) {
         fb_blank(&app->fb, true);
         app->sleeping = true;
         settings_log_battery("SLEEP");
+        settings_log_event("ENTERED SLEEP (SCREEN OFF / CPU 728MHZ)");
         set_power_profile(true);
     } else {
         app->sleeping = false;
         app->last_activity_time = time(NULL);
         set_power_profile(false);
         settings_log_battery("WAKE");
+        settings_log_event("WOKE UP FROM SLEEP");
         fb_blank(&app->fb, false);
         fb_set_backlight(app->saved_brightness);
         fb_mark_all(&app->fb);

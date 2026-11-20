@@ -23,6 +23,7 @@ void     fb_stroke_rect(FB *fb, int x, int y, int w, int h, int thick, uint32_t 
 void     fb_fill_circle(FB *fb, int cx, int cy, int r, uint32_t hex);
 void     fb_draw_button(FB *fb, const ThemePalette *tp, int x, int y, int w, int h,
                         const char *label, bool active, bool danger);
+void     fb_draw_gear_button(FB *fb, const ThemePalette *tp, int x, int y, int w, int h, bool active);
 void     fb_flash_last_button(FB *fb, const ThemePalette *tp);
 void     fb_draw_text(FB *fb, int x, int y, const char *s, uint32_t hex, int scale);
 int      fb_text_width(const char *s, int scale);

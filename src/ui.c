@@ -63,47 +63,45 @@ static void draw_status_right(App *app, const ThemePalette *tp) {
 void ui_draw_toolbar(App *app) {
     FB *fb = &app->fb;
     const ThemePalette *tp = &THEMES[app->doc.theme];
-    const char *paper_names[PAPER_COUNT] = { "LINED", "GRID", "BLANK" };
     const char *size_names[3] = { "SZ:S", "SZ:M", "SZ:L" };
 
     fb_fill_rect(fb, 0, 0, fb->w, TOOLBAR_H, tp->bar_bg);
     fb_fill_rect(fb, 0, TOOLBAR_H - 2, fb->w, 2, tp->bar_border);
 
     int by = 8, bh = 42;
-    fb_draw_button(fb, tp, 14, by, 118, bh, "NOTES", app->sidebar_open, false);
-    fb_fill_rect(fb, 144, 12, 2, 34, tp->bar_border);
+    fb_draw_button(fb, tp, 14, by, 122, bh, "NOTES", app->sidebar_open, false);
+    fb_fill_rect(fb, 148, 12, 2, 34, tp->bar_border);
 
-    /* Markdown viewer toolbar: clean, spacious layout */
+    /* Markdown viewer toolbar: super clean with gear icon */
     if (app->md.active) {
         char hdr[64];
-        snprintf(hdr, sizeof(hdr), "%.42s", app->md.title);
-        fb_draw_text(fb, 166, 22, hdr, tp->bar_text, 2);
+        snprintf(hdr, sizeof(hdr), "%.48s", app->md.title);
+        fb_draw_text(fb, 170, 22, hdr, tp->bar_text, 2);
 
-        fb_draw_button(fb, tp, 1070, by, 134, bh, "+ TASK", true, false);
-        fb_draw_button(fb, tp, 1216, by, 134, bh, "+ LINE", false, false);
-        fb_draw_button(fb, tp, 1368, by, 80,  bh, "UP", false, false);
-        fb_draw_button(fb, tp, 1458, by, 80,  bh, "DN", false, false);
-        fb_draw_button(fb, tp, 1556, by, 104, bh, tp->name, false, false);
-        fb_draw_button(fb, tp, 1672, by, 80,  bh, "SET", app->settings.open, false);
+        fb_draw_button(fb, tp, 1170, by, 136, bh, "+ TASK", true, false);
+        fb_draw_button(fb, tp, 1318, by, 136, bh, "+ LINE", false, false);
+        fb_draw_button(fb, tp, 1472, by, 80,  bh, "UP", false, false);
+        fb_draw_button(fb, tp, 1562, by, 80,  bh, "DN", false, false);
+        fb_draw_gear_button(fb, tp, 1662, by, 54, bh, app->settings.open);
         draw_status_right(app, tp);
         return;
     }
 
-    /* Drawing canvas toolbar — 5 clean, well-spaced groups (13 controls total vs 19 before) */
-    /* Group 1: Tool + Size (158..540) */
+    /* Drawing canvas toolbar — ultra-clean 4 groups + gear icon */
+    /* Group 1: Tool + Size (164..574) */
     const char *pen_lbl = "PEN";
     bool is_pen_family = (app->tool == TOOL_PEN || app->tool == TOOL_BRUSH || app->tool == TOOL_PENCIL);
     if (app->tool == TOOL_BRUSH) pen_lbl = "BRUSH";
     else if (app->tool == TOOL_PENCIL) pen_lbl = "PENCIL";
-    fb_draw_button(fb, tp, 158, by, 108, bh, pen_lbl, is_pen_family, false);
-    fb_draw_button(fb, tp, 274, by, 68,  bh, "HI", app->tool == TOOL_HIGHLIGHTER, false);
-    fb_draw_button(fb, tp, 350, by, 96,  bh, "ERASE", app->tool == TOOL_ERASER, false);
-    fb_draw_button(fb, tp, 454, by, 84,  bh, size_names[app->size_idx % 3], false, false);
-    fb_fill_rect(fb, 552, 12, 2, 34, tp->bar_border);
+    fb_draw_button(fb, tp, 164, by, 112, bh, pen_lbl, is_pen_family, false);
+    fb_draw_button(fb, tp, 286, by, 76,  bh, "HI", app->tool == TOOL_HIGHLIGHTER, false);
+    fb_draw_button(fb, tp, 372, by, 102, bh, "ERASE", app->tool == TOOL_ERASER, false);
+    fb_draw_button(fb, tp, 484, by, 90,  bh, size_names[app->size_idx % 3], false, false);
+    fb_fill_rect(fb, 594, 12, 2, 34, tp->bar_border);
 
-    /* Group 2: 5 Color Swatches (568..812) */
+    /* Group 2: 5 Color Swatches (616..880) */
     for (int i = 0; i < 5; i++) {
-        int cx = 594 + i * 48;
+        int cx = 646 + i * 54;
         int cy = TOOLBAR_H / 2;
         uint32_t col = (i == 0) ? tp->primary_ink : SWATCH_RGB[i];
         if (app->color_idx == (uint8_t)i) {
@@ -112,32 +110,27 @@ void ui_draw_toolbar(App *app) {
         }
         fb_fill_circle(fb, cx, cy, 12, col);
     }
-    fb_fill_rect(fb, 824, 12, 2, 34, tp->bar_border);
+    fb_fill_rect(fb, 904, 12, 2, 34, tp->bar_border);
 
-    /* Group 3: History + Text + Canvas Clear (838..1218) */
+    /* Group 3: History + Text + Canvas Clear (926..1354) */
     Page *pg = &app->doc.pages[app->doc.cur_page];
-    fb_draw_button(fb, tp, 838,  by, 90, bh, "UNDO", false, false);
-    if (pg->count == 0) fb_stroke_rect(fb, 838, by, 90, bh, 2, tp->bar_bg);
-    fb_draw_button(fb, tp, 936,  by, 90, bh, "REDO", false, false);
-    if (pg->redo_count == 0) fb_stroke_rect(fb, 936, by, 90, bh, 2, tp->bar_bg);
-    fb_draw_button(fb, tp, 1034, by, 84, bh, "+TEXT", false, false);
-    fb_draw_button(fb, tp, 1126, by, 92, bh, app->confirm_clear ? "SURE?" : "CLEAR", false, app->confirm_clear);
-    fb_fill_rect(fb, 1232, 12, 2, 34, tp->bar_border);
+    fb_draw_button(fb, tp, 926,  by, 98, bh, "UNDO", false, false);
+    if (pg->count == 0) fb_stroke_rect(fb, 926, by, 98, bh, 2, tp->bar_bg);
+    fb_draw_button(fb, tp, 1034, by, 98, bh, "REDO", false, false);
+    if (pg->redo_count == 0) fb_stroke_rect(fb, 1034, by, 98, bh, 2, tp->bar_bg);
+    fb_draw_button(fb, tp, 1142, by, 98, bh, "+TEXT", false, false);
+    fb_draw_button(fb, tp, 1250, by, 102, bh, app->confirm_clear ? "SURE?" : "CLEAR", false, app->confirm_clear);
+    fb_fill_rect(fb, 1372, 12, 2, 34, tp->bar_border);
 
-    /* Group 4: Paper & Theme (1246..1458) */
-    fb_draw_button(fb, tp, 1246, by, 102, bh, paper_names[app->doc.paper], false, false);
-    fb_draw_button(fb, tp, 1356, by, 102, bh, tp->name, false, false);
-    fb_fill_rect(fb, 1472, 12, 2, 34, tp->bar_border);
-
-    /* Group 5: Page Navigation (< 1/1 > — tap '>' on last page to add a new page) & SET */
-    fb_draw_button(fb, tp, 1486, by, 48, bh, "<", false, false);
+    /* Group 4: Page Navigation (< 1/1 >/+>) & Gear Settings Icon (1394..1716) */
+    fb_draw_button(fb, tp, 1394, by, 54, bh, "<", false, false);
     char pstr[32];
     snprintf(pstr, sizeof(pstr), "%d/%d", app->doc.cur_page + 1, app->doc.page_count);
     int ptw = fb_text_width(pstr, 2);
-    fb_draw_text(fb, 1538 + (76 - ptw) / 2, 22, pstr, tp->bar_text, 2);
+    fb_draw_text(fb, 1452 + (90 - ptw) / 2, 22, pstr, tp->bar_text, 2);
     bool on_last = (app->doc.cur_page + 1 >= app->doc.page_count);
-    fb_draw_button(fb, tp, 1618, by, 54, bh, on_last ? "+>" : ">", false, false);
-    fb_draw_button(fb, tp, 1684, by, 72, bh, "SET", app->settings.open, false);
+    fb_draw_button(fb, tp, 1546, by, 60, bh, on_last ? "+>" : ">", false, false);
+    fb_draw_gear_button(fb, tp, 1662, by, 54, bh, app->settings.open);
 
     draw_status_right(app, tp);
 }
@@ -353,7 +346,7 @@ static bool handle_radial_tap(App *app, int x, int y) {
 
 static bool handle_toolbar_tap(App *app, int x, int y) {
     int by = 8, bh = 42;
-    if (hit_btn(app, x, y, 14, by, 118, bh)) {
+    if (hit_btn(app, x, y, 14, by, 122, bh)) {
         app->sidebar_open = !app->sidebar_open;
         app->move_mode = false;
         if (app->sidebar_open) {
@@ -365,34 +358,27 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     }
 
     if (app->md.active) {
-        if (hit_btn(app, x, y, 1070, by, 134, bh)) {
+        if (hit_btn(app, x, y, 1170, by, 136, bh)) {
             osk_open(&app->settings.osk, OSK_MD_ADD_TASK, "ADD CHECKLIST TASK:", "", NULL);
             app_redraw_all(app);
             return true;
         }
-        if (hit_btn(app, x, y, 1216, by, 134, bh)) {
+        if (hit_btn(app, x, y, 1318, by, 136, bh)) {
             osk_open(&app->settings.osk, OSK_MD_ADD_LINE, "APPEND LINE TO NOTE:", "", NULL);
             app_redraw_all(app);
             return true;
         }
-        if (hit_btn(app, x, y, 1368, by, 80, bh)) {
+        if (hit_btn(app, x, y, 1472, by, 80, bh)) {
             md_scroll(&app->md, -480, app->fb.h - TOOLBAR_H);
             app_redraw_all(app);
             return true;
         }
-        if (hit_btn(app, x, y, 1458, by, 80, bh)) {
+        if (hit_btn(app, x, y, 1562, by, 80, bh)) {
             md_scroll(&app->md, 480, app->fb.h - TOOLBAR_H);
             app_redraw_all(app);
             return true;
         }
-        if (hit_btn(app, x, y, 1556, by, 104, bh)) {
-            app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
-            app->pref_theme = (ThemeKind)app->doc.theme;
-            prefs_save(app);
-            app_redraw_all(app);
-            return true;
-        }
-        if (hit_btn(app, x, y, 1672, by, 80, bh)) {
+        if (hit_btn(app, x, y, 1662, by, 54, bh)) {
             app->settings.open = true;
             app->settings.confirm_action = 0;
             app->settings.status_msg[0] = '\0';
@@ -403,11 +389,11 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         return true;
     }
 
-    if (!hit_rect(x, y, 1126, by, 92, bh)) app->confirm_clear = false;
+    if (!hit_rect(x, y, 1250, by, 102, bh)) app->confirm_clear = false;
     app->confirm_delete = false;
 
     /* Group 1: Tool + Size */
-    if (hit_btn(app, x, y, 158, by, 108, bh)) {
+    if (hit_btn(app, x, y, 164, by, 112, bh)) {
         if (app->tool == TOOL_PEN) app->tool = TOOL_BRUSH;
         else if (app->tool == TOOL_BRUSH) app->tool = TOOL_PENCIL;
         else app->tool = TOOL_PEN;
@@ -415,9 +401,9 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         ui_draw_toolbar(app);
         return true;
     }
-    if (hit_btn(app, x, y, 274, by, 68, bh)) { app->tool = TOOL_HIGHLIGHTER; prefs_save(app); ui_draw_toolbar(app); return true; }
-    if (hit_btn(app, x, y, 350, by, 96, bh)) { app->tool = TOOL_ERASER; prefs_save(app); ui_draw_toolbar(app); return true; }
-    if (hit_btn(app, x, y, 454, by, 84, bh)) {
+    if (hit_btn(app, x, y, 286, by, 76, bh)) { app->tool = TOOL_HIGHLIGHTER; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 372, by, 102, bh)) { app->tool = TOOL_ERASER; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 484, by, 90, bh)) {
         app->size_idx = (uint8_t)((app->size_idx + 1) % 3);
         prefs_save(app);
         ui_draw_toolbar(app);
@@ -426,9 +412,9 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
 
     /* Group 2: 5 Color Swatches */
     for (int i = 0; i < 5; i++) {
-        int cx = 594 + i * 48, cy = TOOLBAR_H / 2;
+        int cx = 646 + i * 54, cy = TOOLBAR_H / 2;
         int dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy <= 23 * 23) {
+        if (dx * dx + dy * dy <= 24 * 24) {
             app->color_idx = (uint8_t)i;
             if (app->tool == TOOL_ERASER) app->tool = TOOL_PEN;
             prefs_save(app);
@@ -439,23 +425,23 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
 
     /* Group 3: History + Text + Clear */
     Page *pg = &app->doc.pages[app->doc.cur_page];
-    if (hit_btn(app, x, y, 838, by, 90, bh)) {
+    if (hit_btn(app, x, y, 926, by, 98, bh)) {
         if (page_undo(pg)) { app->doc.dirty = true; app_save_current(app); app_redraw_all(app); }
         else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_btn(app, x, y, 936, by, 90, bh)) {
+    if (hit_btn(app, x, y, 1034, by, 98, bh)) {
         if (page_redo(pg)) { app->doc.dirty = true; app_save_current(app); app_redraw_all(app); }
         else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_btn(app, x, y, 1034, by, 84, bh)) {
+    if (hit_btn(app, x, y, 1142, by, 98, bh)) {
         app_finish_active_stroke(app);
         osk_open(&app->settings.osk, OSK_NEW_TEXTBOX, "NEW TEXT BOX:", "", NULL);
         app_redraw_all(app);
         return true;
     }
-    if (hit_btn(app, x, y, 1126, by, 92, bh)) {
+    if (hit_btn(app, x, y, 1250, by, 102, bh)) {
         if (!app->confirm_clear) {
             app->confirm_clear = true;
             ui_draw_toolbar(app);
@@ -471,28 +457,8 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         return true;
     }
 
-    /* Group 4: Paper & Theme */
-    if (hit_btn(app, x, y, 1246, by, 102, bh)) {
-        app->doc.paper = (uint8_t)((app->doc.paper + 1) % PAPER_COUNT);
-        app->pref_paper = (PaperKind)app->doc.paper;
-        app->doc.dirty = true;
-        app_save_current(app);
-        prefs_save(app);
-        app_redraw_all(app);
-        return true;
-    }
-    if (hit_btn(app, x, y, 1356, by, 102, bh)) {
-        app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
-        app->pref_theme = (ThemeKind)app->doc.theme;
-        app->doc.dirty = true;
-        app_save_current(app);
-        prefs_save(app);
-        app_redraw_all(app);
-        return true;
-    }
-
-    /* Group 5: Page Navigation (< 1/1 >/+>) & SET */
-    if (hit_btn(app, x, y, 1486, by, 48, bh)) {
+    /* Group 4: Page Navigation (< 1/1 >/+>) & Gear Settings Icon */
+    if (hit_btn(app, x, y, 1394, by, 54, bh)) {
         if (app->doc.cur_page > 0) {
             app->doc.cur_page--;
             app->selected_img = -1;
@@ -504,7 +470,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         } else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_btn(app, x, y, 1618, by, 54, bh)) {
+    if (hit_btn(app, x, y, 1546, by, 60, bh)) {
         if (app->doc.cur_page + 1 < app->doc.page_count) {
             app->doc.cur_page++;
             app->selected_img = -1;
@@ -526,7 +492,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         } else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_btn(app, x, y, 1684, by, 72, bh)) {
+    if (hit_btn(app, x, y, 1662, by, 54, bh)) {
         app_finish_active_stroke(app);
         app_save_current(app);
         app->radial.open = false;
@@ -773,6 +739,24 @@ bool ui_handle_tap(App *app, int x, int y) {
         SettingsAction act = settings_handle_tap(&app->fb, &app->settings, x, y,
                                                  &purpose, text, sizeof(text));
         if (act == SET_ACT_SLEEP) { app_toggle_sleep(app); return true; }
+        if (act == SET_ACT_CYCLE_THEME) {
+            app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
+            app->pref_theme = (ThemeKind)app->doc.theme;
+            app->doc.dirty = true;
+            app_save_current(app);
+            prefs_save(app);
+            app_redraw_all(app);
+            return true;
+        }
+        if (act == SET_ACT_CYCLE_PAPER) {
+            app->doc.paper = (uint8_t)((app->doc.paper + 1) % PAPER_COUNT);
+            app->pref_paper = (PaperKind)app->doc.paper;
+            app->doc.dirty = true;
+            app_save_current(app);
+            prefs_save(app);
+            app_redraw_all(app);
+            return true;
+        }
         if (act == SET_ACT_OSK_FAST) {
             osk_render_fast(&app->fb, (ThemeKind)app->doc.theme, &app->settings.osk);
             return true;

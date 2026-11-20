@@ -225,12 +225,14 @@ static void handle_drop_event(App *app, const DropEvent *ev) {
             app_save_current(app);
             snprintf(app->toast_msg, sizeof(app->toast_msg), "IMAGE DROPPED! DRAG TO MOVE/RESIZE");
             app->toast_until = time(NULL) + 4;
+            settings_log_event("WIFI DROP: IMAGE (%s)", ev->image_filename);
         }
     } else if (ev->kind == DROP_TEXT) {
         if (app->md.active) {
             md_append_line(&app->md, STORAGE_DIR, ev->text);
             snprintf(app->toast_msg, sizeof(app->toast_msg), "APPENDED TEXT TO MARKDOWN NOTE!");
             app->toast_until = time(NULL) + 3;
+            settings_log_event("WIFI DROP: TEXT -> %s", app->md.filename);
         } else {
             float y = (float)(TOOLBAR_H + 96 + (int)(pg->text_count % 6) * 86);
             if (page_add_text(pg, 220.0f, y, 560.0f, 2, ev->text)) {
@@ -241,6 +243,7 @@ static void handle_drop_event(App *app, const DropEvent *ev) {
                 app_save_current(app);
                 snprintf(app->toast_msg, sizeof(app->toast_msg), "TEXT BOX DROPPED! DRAG OR TAP EDIT");
                 app->toast_until = time(NULL) + 4;
+                settings_log_event("WIFI DROP: TEXT BOX (%s)", app->doc.title);
             }
         }
     }
@@ -623,6 +626,7 @@ bool input_poll_once(App *app, int timeout_ms) {
 
     /* Auto-sleep after 5 minutes (300s) of no stylus, touch, key, or drop activity */
     if (!app->sleeping && app->last_activity_time > 0 && (now - app->last_activity_time >= 300)) {
+        settings_log_event("AUTO-SLEEP (5 MIN IDLE)");
         app_toggle_sleep(app);
         return true;
     }

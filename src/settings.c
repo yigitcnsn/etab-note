@@ -3,6 +3,7 @@
 #include "fb.h"
 #include "osk.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,12 +68,22 @@ typedef struct {
 #define MAX_BATT_SAMPLES 48
 
 void settings_log_battery(const char *event) {
+    static int prev_cap = -1;
+    static char prev_stat[16] = {0};
     int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
     if (cap < 0) return;
     int vol = read_int_file("/sys/class/power_supply/battery/batt_vol", 0);
     int cur = read_int_file("/sys/class/power_supply/battery/BatteryAverageCurrent", 0);
     char bstat[16];
     read_str_file("/sys/class/power_supply/battery/status", bstat, sizeof(bstat), "UNK");
+
+    if (prev_stat[0] && strcmp(prev_stat, bstat) != 0) {
+        settings_log_event("POWER STATUS: %s -> %s (%d%%)", prev_stat, bstat, cap);
+    } else if (prev_cap >= 0 && abs(cap - prev_cap) >= 2 && strcmp(event, "TICK") == 0) {
+        settings_log_event("BATTERY LEVEL: %d%% -> %d%% (%s)", prev_cap, cap, bstat);
+    }
+    prev_cap = cap;
+    snprintf(prev_stat, sizeof(prev_stat), "%s", bstat);
 
     /* Load existing samples and keep last MAX_BATT_SAMPLES - 1 */
     BattSample samples[MAX_BATT_SAMPLES];
@@ -153,6 +164,78 @@ static int load_batt_samples(BattSample *out, int max_out) {
             snprintf(out[count].event, sizeof(out[count].event), "%s", ev[0] ? ev : "TICK");
             count++;
         }
+    }
+    fclose(rf);
+    return count;
+}
+
+#define MAX_SYS_EVENTS 24
+
+void settings_log_event(const char *fmt, ...) {
+    if (!fmt) return;
+    char msg[120];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+    int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
+    int ma  = read_int_file("/sys/class/power_supply/battery/BatteryAverageCurrent", 0);
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    char entry[180];
+    snprintf(entry, sizeof(entry), "%02d:%02d:%02d [%d%% %dmA] %s",
+             tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec, cap, ma, msg);
+
+    char lines[MAX_SYS_EVENTS][180];
+    int count = 0;
+    FILE *rf = fopen(EVENT_LOG_PATH, "r");
+    if (rf) {
+        char buf[180];
+        while (fgets(buf, sizeof(buf), rf)) {
+            size_t n = strlen(buf);
+            while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = '\0';
+            if (!buf[0]) continue;
+            if (count == MAX_SYS_EVENTS) {
+                memmove(&lines[0], &lines[1], sizeof(lines[0]) * (MAX_SYS_EVENTS - 1));
+                count--;
+            }
+            snprintf(lines[count++], sizeof(lines[0]), "%s", buf);
+        }
+        fclose(rf);
+    }
+
+    if (count == MAX_SYS_EVENTS) {
+        memmove(&lines[0], &lines[1], sizeof(lines[0]) * (MAX_SYS_EVENTS - 1));
+        count--;
+    }
+    snprintf(lines[count++], sizeof(lines[0]), "%s", entry);
+
+    FILE *wf = fopen(EVENT_LOG_PATH, "w");
+    if (wf) {
+        for (int i = 0; i < count; i++) {
+            fprintf(wf, "%s\n", lines[i]);
+        }
+        fclose(wf);
+    }
+}
+
+static int load_sys_events(char out[][180], int max_out) {
+    FILE *rf = fopen(EVENT_LOG_PATH, "r");
+    if (!rf) return 0;
+    int count = 0;
+    char buf[180];
+    while (fgets(buf, sizeof(buf), rf)) {
+        size_t n = strlen(buf);
+        while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = '\0';
+        if (!buf[0]) continue;
+        if (count == max_out) {
+            memmove(&out[0], &out[1], sizeof(out[0]) * (size_t)(max_out - 1));
+            count--;
+        }
+        snprintf(out[count++], 180, "%s", buf);
     }
     fclose(rf);
     return count;
@@ -344,7 +427,7 @@ static void restart_adbd_tcp(SettingsState *st) {
     snprintf(st->status_msg, sizeof(st->status_msg), "ADBD RESTARTED ON :5555");
 }
 
-void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
+void settings_render(FB *fb, ThemeKind theme, PaperKind paper, const SettingsState *st) {
     if (!st->open && st->osk.open) {
         osk_render_full(fb, theme, &st->osk);
         return;
@@ -352,78 +435,118 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
     if (!st->open) return;
 
     const ThemePalette *tp = &THEMES[theme];
+    const char *paper_names[PAPER_COUNT] = { "LINED", "GRID", "BLANK" };
     fb_fill_rect(fb, 0, 0, fb->w, fb->h, tp->bg);
 
     /* Top header */
     fb_fill_rect(fb, 0, 0, fb->w, TOOLBAR_H, tp->bar_bg);
     fb_fill_rect(fb, 0, TOOLBAR_H - 2, fb->w, 2, tp->bar_border);
     fb_draw_button(fb, tp, 14, 9, 130, 40, "< BACK", true, false);
-    fb_draw_text(fb, 170, 20, "E-TAB 5 OS SETTINGS", tp->bar_text, 2);
+    fb_draw_text(fb, 170, 20, "E-TAB 5 OS SETTINGS & ACTIVITY LOG", tp->bar_text, 2);
     if (st->status_msg[0]) {
         int tw = fb_text_width(st->status_msg, 2);
         fb_draw_text(fb, fb->w - tw - 24, 20, st->status_msg, tp->accent, 2);
     }
 
-    /* Left panel: Wi-Fi */
-    int lx = 32, ly = TOOLBAR_H + 28, lw = 910, lh = fb->h - TOOLBAR_H - 56;
+    /* Left panel: Wi-Fi + System Events Log */
+    int lx = 32, ly = TOOLBAR_H + 24, lw = 910, lh = fb->h - TOOLBAR_H - 48;
     fb_fill_rect(fb, lx, ly, lw, lh, tp->sidebar_bg);
     fb_stroke_rect(fb, lx, ly, lw, lh, 2, tp->bar_border);
-    fb_draw_text(fb, lx + 24, ly + 22, "WI-FI (WLAN0)", tp->accent, 2);
+    fb_draw_text(fb, lx + 24, ly + 18, "WI-FI (WLAN0) & REMOTE DROP", tp->accent, 2);
 
-    char line[128];
-    snprintf(line, sizeof(line), "NETWORK : %s", st->ssid);
-    fb_draw_text(fb, lx + 24, ly + 60, line, tp->bar_text, 2);
-    snprintf(line, sizeof(line), "STATE   : %s", st->wpa_state);
-    fb_draw_text(fb, lx + 24, ly + 90, line, tp->bar_muted, 2);
-    snprintf(line, sizeof(line), "IP ADDR : %s   (ADB :5555)", st->ip);
-    fb_draw_text(fb, lx + 24, ly + 120, line, tp->bar_text, 2);
+    char line[160];
+    snprintf(line, sizeof(line), "SSID: %s  (%s)", st->ssid, st->wpa_state);
+    fb_draw_text(fb, lx + 24, ly + 50, line, tp->bar_text, 2);
+    snprintf(line, sizeof(line), "IP  : %s  |  HTTP://ETAB.LOCAL:8080  (ADB :5555)", st->ip);
+    fb_draw_text(fb, lx + 24, ly + 78, line, tp->bar_muted, 2);
 
-    fb_draw_button(fb, tp, lx + 24,  ly + 162, 190, 48, "SCAN WIFI", true, false);
-    fb_draw_button(fb, tp, lx + 228, ly + 162, 210, 48, "RECONNECT", false, false);
-    fb_draw_button(fb, tp, lx + 452, ly + 162, 220, 48, "DISCONNECT", false, false);
+    fb_draw_button(fb, tp, lx + 24,  ly + 112, 168, 44, "SCAN WIFI", true, false);
+    fb_draw_button(fb, tp, lx + 204, ly + 112, 176, 44, "RECONNECT", false, false);
+    fb_draw_button(fb, tp, lx + 392, ly + 112, 184, 44, "DISCONNECT", false, false);
+    fb_draw_button(fb, tp, lx + 588, ly + 112, 176, 44, "ADB :5555", false, false);
+    fb_draw_button(fb, tp, lx + 776, ly + 112, 110, 44, "SYNC", false, false);
 
-    fb_fill_rect(fb, lx + 20, ly + 228, lw - 40, 2, tp->bar_border);
-    fb_draw_text(fb, lx + 24, ly + 242, "NEARBY NETWORKS (TAP TO CONNECT)", tp->bar_muted, 2);
+    fb_fill_rect(fb, lx + 20, ly + 168, lw - 40, 2, tp->bar_border);
+    fb_draw_text(fb, lx + 24, ly + 180, "NEARBY NETWORKS (TAP TO CONNECT)", tp->bar_muted, 2);
 
-    int ny = ly + 280;
-    int max_nets = (ly + lh - ny - 16) / 62;
+    int ny = ly + 210;
+    int max_nets = 5;
     if (st->net_count == 0) {
-        fb_draw_text(fb, lx + 24, ny + 12, "TAP 'SCAN WIFI' TO LIST NETWORKS.", tp->bar_muted, 2);
+        fb_draw_text(fb, lx + 24, ny + 12, "TAP 'SCAN WIFI' TO LIST NEARBY NETWORKS.", tp->bar_muted, 2);
     } else {
         for (int i = 0; i < st->net_count && i < max_nets; i++) {
             bool connected = (strcmp(st->nets[i].ssid, st->ssid) == 0);
-            fb_fill_rect(fb, lx + 24, ny, lw - 48, 52, connected ? tp->sidebar_sel : tp->bar_bg);
-            fb_stroke_rect(fb, lx + 24, ny, lw - 48, 52, 1, connected ? tp->accent : tp->bar_border);
-            fb_draw_text(fb, lx + 40, ny + 18, st->nets[i].ssid, tp->bar_text, 2);
+            fb_fill_rect(fb, lx + 24, ny, lw - 48, 46, connected ? tp->sidebar_sel : tp->bar_bg);
+            fb_stroke_rect(fb, lx + 24, ny, lw - 48, 46, 1, connected ? tp->accent : tp->bar_border);
+            fb_draw_text(fb, lx + 38, ny + 15, st->nets[i].ssid, tp->bar_text, 2);
             char rinfo[48];
             snprintf(rinfo, sizeof(rinfo), "%s %d DBM", st->nets[i].secured ? "WPA" : "OPEN", st->nets[i].signal);
-            int rw = fb_text_width(rinfo, 2);
-            fb_draw_text(fb, lx + lw - 40 - rw, ny + 18, rinfo, tp->bar_muted, 2);
-            ny += 62;
+            int rw_t = fb_text_width(rinfo, 2);
+            fb_draw_text(fb, lx + lw - 38 - rw_t, ny + 15, rinfo, tp->bar_muted, 2);
+            ny += 52;
         }
     }
 
-    /* Right panel: Display, Battery & System */
+    /* Bottom-left: SYSTEM EVENTS & AWAY LOG */
+    int ey = ly + 482;
+    fb_fill_rect(fb, lx + 20, ey, lw - 40, 2, tp->bar_border);
+    fb_draw_text(fb, lx + 24, ey + 14, "SYSTEM EVENTS & WHILE-AWAY LOG", tp->accent, 2);
+    fb_draw_button(fb, tp, lx + lw - 154, ey + 8, 130, 34, "CLR LOG", false, false);
+
+    int log_box_y = ey + 48;
+    int log_box_h = lh - (log_box_y - ly) - 18;
+    fb_fill_rect(fb, lx + 24, log_box_y, lw - 48, log_box_h, tp->bar_bg);
+    fb_stroke_rect(fb, lx + 24, log_box_y, lw - 48, log_box_h, 1, tp->bar_border);
+
+    char ev_lines[16][180];
+    int ev_count = load_sys_events(ev_lines, 16);
+    int max_ev_rows = (log_box_h - 16) / 22;
+    if (ev_count == 0) {
+        fb_draw_text(fb, lx + 40, log_box_y + 20, "NO EVENTS RECORDED YET.", tp->bar_muted, 2);
+    } else {
+        int start_idx = ev_count > max_ev_rows ? (ev_count - max_ev_rows) : 0;
+        int ry_ev = log_box_y + 10;
+        for (int i = start_idx; i < ev_count; i++) {
+            /* Show newest at top so user immediately sees what happened most recently */
+            int rev = ev_count - 1 - (i - start_idx);
+            uint32_t col = (i == start_idx) ? tp->bar_text : tp->bar_muted;
+            if (strstr(ev_lines[rev], "SLEEP") || strstr(ev_lines[rev], "WAKE") || strstr(ev_lines[rev], "DROP"))
+                col = tp->accent;
+            char short_ev[72];
+            snprintf(short_ev, sizeof(short_ev), "%.68s", ev_lines[rev]);
+            fb_draw_text(fb, lx + 36, ry_ev, short_ev, col, 2);
+            ry_ev += 22;
+        }
+    }
+
+    /* Right panel: Display, Appearance (Theme/Paper), Battery Tracker & System Power */
     int rx = 974, ry = ly, rw = fb->w - rx - 32, rh = lh;
     fb_fill_rect(fb, rx, ry, rw, rh, tp->sidebar_bg);
     fb_stroke_rect(fb, rx, ry, rw, rh, 2, tp->bar_border);
 
     int bri = fb_get_backlight();
-    fb_draw_text(fb, rx + 24, ry + 22, "DISPLAY BRIGHTNESS", tp->accent, 2);
-    snprintf(line, sizeof(line), "%d%% (%d / 255)", (bri * 100) / 255, bri);
-    fb_draw_text(fb, rx + rw - fb_text_width(line, 2) - 24, ry + 22, line, tp->bar_text, 2);
+    fb_draw_text(fb, rx + 24, ry + 18, "DISPLAY & APPEARANCE", tp->accent, 2);
+    snprintf(line, sizeof(line), "BRIGHTNESS %d%%", (bri * 100) / 255);
+    fb_draw_text(fb, rx + rw - fb_text_width(line, 2) - 24, ry + 18, line, tp->bar_text, 2);
 
-    fb_draw_button(fb, tp, rx + 24, ry + 62, 74, 52, "-", false, false);
-    int bar_x = rx + 112, bar_y = ry + 66, bar_w = rw - 224, bar_h = 44;
+    fb_draw_button(fb, tp, rx + 24, ry + 52, 74, 48, "-", false, false);
+    int bar_x = rx + 112, bar_y = ry + 56, bar_w = rw - 224, bar_h = 40;
     fb_fill_rect(fb, bar_x, bar_y, bar_w, bar_h, tp->bar_bg);
     fb_stroke_rect(fb, bar_x, bar_y, bar_w, bar_h, 2, tp->bar_border);
     int fill_w = (bar_w - 4) * bri / 255;
     if (fill_w > 0) fb_fill_rect(fb, bar_x + 2, bar_y + 2, fill_w, bar_h - 4, tp->accent);
-    fb_draw_button(fb, tp, rx + rw - 98, ry + 62, 74, 52, "+", false, false);
+    fb_draw_button(fb, tp, rx + rw - 98, ry + 52, 74, 48, "+", false, false);
 
-    fb_fill_rect(fb, rx + 20, ry + 136, rw - 40, 2, tp->bar_border);
+    /* Theme & Paper buttons moved from top bar into Settings */
+    char t_lbl[48], p_lbl[48];
+    snprintf(t_lbl, sizeof(t_lbl), "THEME: %s", tp->name);
+    snprintf(p_lbl, sizeof(p_lbl), "PAPER: %s", paper_names[paper % PAPER_COUNT]);
+    fb_draw_button(fb, tp, rx + 24,  ry + 112, (rw - 64) / 2, 48, t_lbl, false, false);
+    fb_draw_button(fb, tp, rx + 40 + (rw - 64) / 2, ry + 112, (rw - 64) / 2, 48, p_lbl, false, false);
 
-    fb_draw_text(fb, rx + 24, ry + 150, "BATTERY & DAY TRACKER", tp->accent, 2);
+    fb_fill_rect(fb, rx + 20, ry + 174, rw - 40, 2, tp->bar_border);
+
+    fb_draw_text(fb, rx + 24, ry + 188, "BATTERY & DAY TRACKER", tp->accent, 2);
     int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
     int vol = read_int_file("/sys/class/power_supply/battery/batt_vol", 0);
     int cur = read_int_file("/sys/class/power_supply/battery/BatteryAverageCurrent", 0);
@@ -440,20 +563,21 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
 
     snprintf(line, sizeof(line), "%d%% (%s)  |  %d MV  |  %d MA  |  %.1fC  |  %.1f/%.1f GB",
              cap, bstat, vol, cur, (float)tmp / 10.0f, free_gb, tot_gb);
-    fb_draw_text(fb, rx + 24, ry + 180, line, tp->bar_text, 2);
+    fb_draw_text(fb, rx + 24, ry + 216, line, tp->bar_text, 2);
 
     /* 24-hour / 32-sample Battery History Bar Chart */
     BattSample samples[32];
     int scount = load_batt_samples(samples, 32);
-    int gx = rx + 24, gy = ry + 208, gw = rw - 48, gh = 92;
+    int gx = rx + 24, gy = ry + 244, gw = rw - 48, gh = 220;
     fb_fill_rect(fb, gx, gy, gw, gh, tp->bar_bg);
     fb_stroke_rect(fb, gx, gy, gw, gh, 1, tp->bar_border);
     /* 50% dashed reference line */
     for (int dx = gx + 6; dx < gx + gw - 6; dx += 12) {
-        fb_fill_rect(fb, dx, gy + gh / 2, 6, 1, tp->bar_border);
+        fb_fill_rect(fb, dx, gy + (gh - 20) / 2, 6, 1, tp->bar_border);
     }
-    fb_draw_text(fb, gx + 6, gy + 6, "100%", tp->bar_muted, 1);
-    fb_draw_text(fb, gx + 6, gy + gh / 2 - 4, "50%", tp->bar_muted, 1);
+    fb_draw_text(fb, gx + 6, gy + 8, "100%", tp->bar_muted, 1);
+    fb_draw_text(fb, gx + 6, gy + (gh - 20) / 2 - 4, "50%", tp->bar_muted, 1);
+    fb_draw_text(fb, gx + 6, gy + gh - 28, "0%", tp->bar_muted, 1);
 
     if (scount > 0) {
         int slot_w = (gw - 52) / 32;
@@ -463,15 +587,14 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
             int c = samples[i].cap;
             if (c < 0) c = 0;
             if (c > 100) c = 100;
-            int bh = ((gh - 24) * c) / 100;
+            int bh = ((gh - 34) * c) / 100;
             if (bh < 3) bh = 3;
             int bx = start_x + i * slot_w;
-            int by = gy + gh - 16 - bh;
+            int by = gy + gh - 20 - bh;
             uint32_t bcol = (c <= 20) ? 0xD9383A :
                             (strncmp(samples[i].status, "Charging", 8) == 0 ? 0x2E8B57 : tp->accent);
             fb_fill_rect(fb, bx, by, slot_w - 3, bh, bcol);
         }
-        /* Show first, middle, and latest timestamps + drain summary */
         struct tm tm0, tm1;
         localtime_r(&samples[0].ts, &tm0);
         localtime_r(&samples[scount - 1].ts, &tm1);
@@ -488,18 +611,10 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
                      scount, scount == 1 ? "" : "S",
                      tm1.tm_hour, tm1.tm_min, samples[scount - 1].cap, samples[scount - 1].event);
         }
-        fb_draw_text(fb, gx + 44, gy + gh - 12, hinfo, tp->bar_muted, 1);
+        fb_draw_text(fb, gx + 44, gy + gh - 14, hinfo, tp->bar_muted, 1);
     } else {
-        fb_draw_text(fb, gx + 54, gy + 40, "RECORDING BATTERY HISTORY...", tp->bar_muted, 2);
+        fb_draw_text(fb, gx + 54, gy + 90, "RECORDING BATTERY HISTORY...", tp->bar_muted, 2);
     }
-
-    fb_fill_rect(fb, rx + 20, ry + 312, rw - 40, 2, tp->bar_border);
-
-    fb_draw_text(fb, rx + 24, ry + 326, "REMOTE & WI-FI DROP (ETAB.LOCAL)", tp->accent, 2);
-    snprintf(line, sizeof(line), "DROP : HTTP://ETAB.LOCAL:8080   (ADB :5555)");
-    fb_draw_text(fb, rx + 24, ry + 362, line, tp->bar_text, 2);
-    fb_draw_button(fb, tp, rx + 24, ry + 402, 340, 52, "RESTART ADBD :5555", false, false);
-    fb_draw_button(fb, tp, rx + 380, ry + 402, 220, 52, "REFRESH", false, false);
 
     fb_fill_rect(fb, rx + 20, ry + 480, rw - 40, 2, tp->bar_border);
 
@@ -512,7 +627,7 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
     fb_draw_button(fb, tp, rx + 312, ry + 620, 270, 58,
                    st->confirm_action == 3 ? "CONFIRM OFF?" : "POWER OFF", false, st->confirm_action == 3);
 
-    fb_draw_text(fb, rx + 24, ry + rh - 44, "E-TAB 5 BARE NOTE OS  |  LINUX 3.4.67 ARMV7", tp->bar_muted, 2);
+    fb_draw_text(fb, rx + 24, ry + rh - 36, "E-TAB 5 BARE NOTE OS  |  LINUX 3.4.67 ARMV7", tp->bar_muted, 2);
 
     if (st->osk.open) {
         osk_render_full(fb, theme, &st->osk);
@@ -543,37 +658,52 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         return SET_ACT_CLOSE;
     }
 
-    int lx = 32, ly = TOOLBAR_H + 28, lw = 910, lh = fb->h - TOOLBAR_H - 56;
+    int lx = 32, ly = TOOLBAR_H + 24, lw = 910;
     int rx = 974, ry = ly, rw = fb->w - rx - 32;
 
-    if (hit_btn(fb, x, y, lx + 24, ly + 162, 190, 48)) {
+    if (hit_btn(fb, x, y, lx + 24, ly + 112, 168, 44)) {
         st->confirm_action = 0;
         settings_scan_wifi(st);
+        settings_log_event("WIFI SCAN (%d NETS)", st->net_count);
         return SET_ACT_REDRAW;
     }
-    if (hit_btn(fb, x, y, lx + 228, ly + 162, 210, 48)) {
+    if (hit_btn(fb, x, y, lx + 204, ly + 112, 176, 44)) {
         char res[128];
         wpa_cmd("reconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "RECONNECTING...");
         usleep(400000);
         settings_refresh(st);
+        settings_log_event("WIFI RECONNECT (%s)", st->ssid);
         return SET_ACT_REDRAW;
     }
-    if (hit_btn(fb, x, y, lx + 452, ly + 162, 220, 48)) {
+    if (hit_btn(fb, x, y, lx + 392, ly + 112, 184, 44)) {
         char res[128];
         wpa_cmd("disconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "DISCONNECTED");
         settings_refresh(st);
+        settings_log_event("WIFI DISCONNECTED");
+        return SET_ACT_REDRAW;
+    }
+    if (hit_btn(fb, x, y, lx + 588, ly + 112, 176, 44)) {
+        restart_adbd_tcp(st);
+        settings_refresh(st);
+        settings_log_event("ADBD RESTARTED :5555");
+        return SET_ACT_REDRAW;
+    }
+    if (hit_btn(fb, x, y, lx + 776, ly + 112, 110, 44)) {
+        settings_refresh(st);
+        snprintf(st->status_msg, sizeof(st->status_msg), "STATUS REFRESHED");
         return SET_ACT_REDRAW;
     }
 
-    int ny = ly + 280;
-    int max_nets = (ly + lh - ny - 16) / 62;
+    int ny = ly + 210;
+    int max_nets = 5;
     for (int i = 0; i < st->net_count && i < max_nets; i++) {
-        if (hit_btn(fb, x, y, lx + 24, ny, lw - 48, 52)) {
+        if (hit_btn(fb, x, y, lx + 24, ny, lw - 48, 46)) {
             st->confirm_action = 0;
             if (!st->nets[i].secured) {
                 settings_connect_wifi(st, st->nets[i].ssid, "");
+                settings_log_event("WIFI CONNECT %s", st->nets[i].ssid);
             } else {
                 char prompt[96];
                 snprintf(prompt, sizeof(prompt), "WIFI PASSWORD FOR %s:", st->nets[i].ssid);
@@ -581,22 +711,31 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
             }
             return SET_ACT_REDRAW;
         }
-        ny += 62;
+        ny += 52;
     }
 
-    if (hit_btn(fb, x, y, rx + 24, ry + 62, 74, 52)) {
+    /* Clear event log button */
+    int ey = ly + 482;
+    if (hit_btn(fb, x, y, lx + lw - 154, ey + 8, 130, 34)) {
+        unlink(EVENT_LOG_PATH);
+        settings_log_event("EVENT LOG CLEARED");
+        snprintf(st->status_msg, sizeof(st->status_msg), "EVENT LOG CLEARED");
+        return SET_ACT_REDRAW;
+    }
+
+    if (hit_btn(fb, x, y, rx + 24, ry + 52, 74, 48)) {
         int b = fb_get_backlight() - 25;
         if (b < 15) b = 15;
         fb_set_backlight(b);
         return SET_ACT_REDRAW;
     }
-    if (hit_btn(fb, x, y, rx + rw - 98, ry + 62, 74, 52)) {
+    if (hit_btn(fb, x, y, rx + rw - 98, ry + 52, 74, 48)) {
         int b = fb_get_backlight() + 25;
         if (b > 255) b = 255;
         fb_set_backlight(b);
         return SET_ACT_REDRAW;
     }
-    int bar_x = rx + 112, bar_y = ry + 62, bar_w = rw - 224, bar_h = 52;
+    int bar_x = rx + 112, bar_y = ry + 52, bar_w = rw - 224, bar_h = 48;
     if (hit_rect(x, y, bar_x, bar_y, bar_w, bar_h)) {
         int b = 15 + ((x - bar_x) * 240) / bar_w;
         if (b < 15) b = 15;
@@ -605,15 +744,13 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         return SET_ACT_REDRAW;
     }
 
-    if (hit_btn(fb, x, y, rx + 24, ry + 402, 340, 52)) {
-        restart_adbd_tcp(st);
-        settings_refresh(st);
-        return SET_ACT_REDRAW;
+    /* Theme & Paper buttons inside Settings */
+    int half_w = (rw - 64) / 2;
+    if (hit_btn(fb, x, y, rx + 24, ry + 112, half_w, 48)) {
+        return SET_ACT_CYCLE_THEME;
     }
-    if (hit_btn(fb, x, y, rx + 380, ry + 402, 220, 52)) {
-        settings_refresh(st);
-        snprintf(st->status_msg, sizeof(st->status_msg), "STATUS REFRESHED");
-        return SET_ACT_REDRAW;
+    if (hit_btn(fb, x, y, rx + 40 + half_w, ry + 112, half_w, 48)) {
+        return SET_ACT_CYCLE_PAPER;
     }
 
     if (hit_btn(fb, x, y, rx + 24, ry + 544, 270, 58)) {

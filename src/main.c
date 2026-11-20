@@ -74,6 +74,8 @@ int main(void) {
     app.last_status_tick = time(NULL);
     app.last_activity_time = app.last_status_tick;
     settings_log_battery("BOOT");
+    settings_log_event("NOTEOS STARTED (NOTE: %s)",
+                       app.md.active ? app.md.filename : app.doc.title);
 
     while (!g_sig_quit && !app.quit) {
         if (!input_poll_once(&app, app.sleeping ? -1 : 1000)) break;

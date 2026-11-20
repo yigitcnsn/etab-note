@@ -212,12 +212,14 @@ typedef struct {
 
 /* Action codes returned by settings & OSK tap handlers */
 typedef enum {
-    SET_ACT_NONE     = 0,
-    SET_ACT_REDRAW   = 1,
-    SET_ACT_CLOSE    = 2,
-    SET_ACT_SLEEP    = 3,
-    SET_ACT_OSK_DONE = 4,
-    SET_ACT_OSK_FAST = 5
+    SET_ACT_NONE        = 0,
+    SET_ACT_REDRAW      = 1,
+    SET_ACT_CLOSE       = 2,
+    SET_ACT_SLEEP       = 3,
+    SET_ACT_OSK_DONE    = 4,
+    SET_ACT_OSK_FAST    = 5,
+    SET_ACT_CYCLE_THEME = 6,
+    SET_ACT_CYCLE_PAPER = 7
 } SettingsAction;
 
 extern const uint32_t SWATCH_RGB[5];

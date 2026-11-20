@@ -396,3 +396,15 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   ./scripts/deploy.sh
   ```
 - **Result:** Deployed live over USB ADB (`243 KB`).
+
+### Step 32: Gear Icon Button, Move Theme/Paper into Settings & Add "While-Away" System Events Log
+- **Changes:**
+  - `include/fb.h`, `src/fb.c`, `src/ui.c`: Added vector gear icon button (`fb_draw_gear_button`) replacing the `"SET"` text button on the top toolbar, and moved the `THEME` (`LIGHT`/`PAPER`/`DARK`) and `PAPER` (`LINED`/`GRID`/`BLANK`) selectors out of the top toolbar into the `DISPLAY & APPEARANCE` card inside Settings (`SET_ACT_CYCLE_THEME`, `SET_ACT_CYCLE_PAPER`).
+  - `include/settings.h`, `src/settings.c`, `src/app.c`, `src/input.c`, `src/main.c`: Added persistent `settings_log_event()` writing timestamped + battery-tagged events (`HH:MM:SS [cap% mA] event`) to `/data/noteos/system_events.log` and displaying a live `SYSTEM EVENTS & WHILE-AWAY LOG` panel (with `CLR LOG` button) in Settings. Automatically logs `BOOT`, `SLEEP`, `AUTO-SLEEP (5 MIN IDLE)`, `WAKE`, charger plug/unplug (`POWER STATUS`), battery drain steps, Wi-Fi scans/connects/disconnects, and incoming Wi-Fi Drops.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ./scripts/deploy.sh
+  adb -s FXICBUF821BC8NA shell 'cat /data/noteos/system_events.log'
+  ```
+- **Result:** Deployed live (`246 KB`) and verified `/data/noteos/system_events.log` (`16:24:37 [100% 37mA] NOTEOS STARTED (NOTE: test)`).

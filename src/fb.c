@@ -403,6 +403,26 @@ void fb_draw_button(FB *fb, const ThemePalette *tp, int x, int y, int w, int h,
     fb_draw_text(fb, x + (w - tw) / 2, y + (h - 14) / 2, label, fg, 2);
 }
 
+void fb_draw_gear_button(FB *fb, const ThemePalette *tp, int x, int y, int w, int h, bool active) {
+    uint32_t bg = active ? tp->accent : tp->bar_bg;
+    uint32_t fg = active ? 0xFFFFFF : tp->bar_text;
+    uint32_t bd = active ? tp->accent : tp->bar_border;
+    fb_fill_rect(fb, x, y, w, h, bg);
+    fb_stroke_rect(fb, x, y, w, h, 2, bd);
+
+    int cx = x + w / 2;
+    int cy = y + h / 2;
+    /* 8 gear teeth around the outer ring */
+    static const int8_t dx8[8] = {  0,  8, 11,  8,  0, -8, -11, -8 };
+    static const int8_t dy8[8] = { -11, -8, 0,  8, 11,  8,   0, -8 };
+    for (int i = 0; i < 8; i++) {
+        fb_fill_circle(fb, cx + dx8[i], cy + dy8[i], 3, fg);
+    }
+    /* Gear body ring & center hole */
+    fb_fill_circle(fb, cx, cy, 10, fg);
+    fb_fill_circle(fb, cx, cy, 5, bg);
+}
+
 void fb_flash_last_button(FB *fb, const ThemePalette *tp) {
     if (fb->last_btn_w <= 0 || fb->last_btn_h <= 0) return;
     int x = fb->last_btn_x, y = fb->last_btn_y, w = fb->last_btn_w, h = fb->last_btn_h;
