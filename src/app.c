@@ -24,21 +24,18 @@ static void write_sysfs_str(const char *path, const char *val) {
 static void set_power_profile(bool low_power) {
     /* 1. Wi-Fi IEEE 802.11 power-save mode (DTIM beacon listen) */
     if (access("/system/bin/wpa_cli", X_OK) == 0) {
-        if (low_power) {
-            system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
-        } else {
-            system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
-        }
+        system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
     }
-    /* 2. CPU frequency floor / governor & MediaTek Smart-Book suspend state */
+    /* 2. CPU frequency floor / governor & MediaTek Smart-Book suspend state
+       (Never write "mem" to /sys/power/state here because on Android 3.4 kernels
+        /sys/power/state is sticky early-suspend: writing "mem" without writing "on"
+        causes the kernel suspend worker to re-enter deep sleep and disable mtk-kpd!) */
     if (low_power) {
+        write_sysfs_str("/sys/power/state", "on\n");
         write_sysfs_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "powersave\n");
         write_sysfs_str("/sys/power/sb_state", "suspend\n");
-        /* Enter Linux kernel suspend-to-RAM (blocks until hardware KEY_POWER or wakeup IRQ;
-           immediately returns if charger wakelock is active while plugged in) */
-        sync();
-        write_sysfs_str("/sys/power/state", "mem\n");
     } else {
+        write_sysfs_str("/sys/power/state", "on\n");
         write_sysfs_str("/sys/power/sb_state", "resume\n");
         write_sysfs_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "hotplug\n");
     }

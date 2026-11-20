@@ -372,3 +372,14 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos all
   ```
 - **Result:** Compiled cleanly (`0` warnings under `-Werror`, `241 KB` static ARMv7).
+
+### Step 30: Fix Sticky Android 3.4 Early-Suspend (`request_suspend_state`) Locking Display/Keypad on Wake
+- **Root Cause (from `dmesg`):** On Android Linux 3.4.67, writing `mem` to `/sys/power/state` invokes `request_suspend_state(PM_SUSPEND_MEM)` (sticky asynchronous early-suspend), which disables `mtk-kpd` (`kpd_early_suspend wake up source disable!!`) and keeps re-entering suspend until `"on"` is written to `/sys/power/state`.
+- **Fix:**
+  - `src/app.c`, `src/main.c`: Always keep `/sys/power/state` set to `"on"` and use MediaTek's dedicated `/sys/power/sb_state` (`suspend` / `resume`) + `FB_BLANK_POWERDOWN` + `powersave` CPU governor (`728 MHz`, single core) + `poll(..., -1)` + Wi-Fi 802.11 `ps 1` for reliable instant-wake sleep.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ANDROID_SERIAL=FXICBUF821BC8NA ./scripts/deploy.sh
+  ```
+- **Result:** Screen immediately unblanked (`brightness=190`) and deployed over USB ADB (`FXICBUF821BC8NA`) with both the Battery Day Tracker chart and instant button-press visual feedback active.

@@ -48,6 +48,14 @@ int main(void) {
         return 1;
     }
 
+    /* Ensure Android early-suspend state is "on" and Smart-Book display state is resumed */
+    {
+        FILE *pf = fopen("/sys/power/state", "w");
+        if (pf) { fputs("on\n", pf); fclose(pf); }
+        FILE *sf = fopen("/sys/power/sb_state", "w");
+        if (sf) { fputs("resume\n", sf); fclose(sf); }
+    }
+
     /* Enable IEEE 802.11 Wi-Fi power-save on boot */
     if (access("/system/bin/wpa_cli", X_OK) == 0) {
         system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
