@@ -350,3 +350,15 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   ./scripts/deploy.sh
   ```
 - **Result:** Deployed and verified running on `192.168.1.189:5555` (`728 MHz` idle, `wpa_cli set ps 1` active).
+
+### Step 28: Add Persistent Day Battery History Logger & Visual Bar Chart in `SET`
+- **Features:**
+  - `include/settings.h`, `src/settings.c`: Added `settings_log_battery(event)` recording rolling battery snapshots (`timestamp,capacity,mV,mA,status,event`) to `/data/noteos/battery_log.csv` on `BOOT`, `SLEEP`, `WAKE`, and periodic `TICK` (every 15 min or whenever battery `%` changes).
+  - `src/settings.c`: Upgraded the `BATTERY & DAY TRACKER` card in `SET` to render a 32-sample graphical bar chart (green while charging, blue on battery, red `<= 20%`, with a 50% dashed reference line) plus calculated `%` change and `%/hr` drain rate across the tracked time window.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ./scripts/deploy.sh
+  adb -s 192.168.1.189:5555 shell 'cat /data/noteos/battery_log.csv'
+  ```
+- **Result:** Deployed live (`241 KB`) and verified `/data/noteos/battery_log.csv` logging (`1795187177,100,4263,1810,Full,BOOT`).

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/statvfs.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define WPA_CLI_PATH "/system/bin/wpa_cli"
@@ -39,6 +40,109 @@ static void read_str_file(const char *path, char *out, size_t sz, const char *fa
         while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r')) out[--n] = '\0';
     }
     fclose(f);
+}
+
+typedef struct {
+    time_t ts;
+    int    cap;
+    int    mv;
+    int    ma;
+    char   status[16];
+    char   event[16];
+} BattSample;
+
+#define MAX_BATT_SAMPLES 48
+
+void settings_log_battery(const char *event) {
+    int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
+    if (cap < 0) return;
+    int vol = read_int_file("/sys/class/power_supply/battery/batt_vol", 0);
+    int cur = read_int_file("/sys/class/power_supply/battery/BatteryAverageCurrent", 0);
+    char bstat[16];
+    read_str_file("/sys/class/power_supply/battery/status", bstat, sizeof(bstat), "UNK");
+
+    /* Load existing samples and keep last MAX_BATT_SAMPLES - 1 */
+    BattSample samples[MAX_BATT_SAMPLES];
+    int count = 0;
+    FILE *rf = fopen(BATT_LOG_PATH, "r");
+    if (rf) {
+        char line[160];
+        while (fgets(line, sizeof(line), rf)) {
+            long ts = 0;
+            int c = 0, v = 0, a = 0;
+            char st[16] = {0}, ev[16] = {0};
+            if (sscanf(line, "%ld,%d,%d,%d,%15[^,],%15[^\r\n]", &ts, &c, &v, &a, st, ev) >= 5) {
+                if (count == MAX_BATT_SAMPLES) {
+                    memmove(&samples[0], &samples[1], sizeof(BattSample) * (MAX_BATT_SAMPLES - 1));
+                    count--;
+                }
+                samples[count].ts = (time_t)ts;
+                samples[count].cap = c;
+                samples[count].mv = v;
+                samples[count].ma = a;
+                snprintf(samples[count].status, sizeof(samples[count].status), "%s", st);
+                snprintf(samples[count].event, sizeof(samples[count].event), "%s", ev[0] ? ev : "TICK");
+                count++;
+            }
+        }
+        fclose(rf);
+    }
+
+    time_t now = time(NULL);
+    /* Avoid duplicate TICK entries if less than 15 min since last sample AND capacity unchanged */
+    if (count > 0 && strcmp(event, "TICK") == 0) {
+        BattSample *last = &samples[count - 1];
+        if (last->cap == cap && (now - last->ts) < 900) return;
+    }
+
+    if (count == MAX_BATT_SAMPLES) {
+        memmove(&samples[0], &samples[1], sizeof(BattSample) * (MAX_BATT_SAMPLES - 1));
+        count--;
+    }
+    samples[count].ts = now;
+    samples[count].cap = cap;
+    samples[count].mv = vol;
+    samples[count].ma = cur;
+    snprintf(samples[count].status, sizeof(samples[count].status), "%s", bstat);
+    snprintf(samples[count].event, sizeof(samples[count].event), "%s", event ? event : "TICK");
+    count++;
+
+    FILE *wf = fopen(BATT_LOG_PATH, "w");
+    if (wf) {
+        for (int i = 0; i < count; i++) {
+            fprintf(wf, "%ld,%d,%d,%d,%s,%s\n",
+                    (long)samples[i].ts, samples[i].cap, samples[i].mv,
+                    samples[i].ma, samples[i].status, samples[i].event);
+        }
+        fclose(wf);
+    }
+}
+
+static int load_batt_samples(BattSample *out, int max_out) {
+    FILE *rf = fopen(BATT_LOG_PATH, "r");
+    if (!rf) return 0;
+    int count = 0;
+    char line[160];
+    while (fgets(line, sizeof(line), rf)) {
+        long ts = 0;
+        int c = 0, v = 0, a = 0;
+        char st[16] = {0}, ev[16] = {0};
+        if (sscanf(line, "%ld,%d,%d,%d,%15[^,],%15[^\r\n]", &ts, &c, &v, &a, st, ev) >= 5) {
+            if (count == max_out) {
+                memmove(&out[0], &out[1], sizeof(BattSample) * (size_t)(max_out - 1));
+                count--;
+            }
+            out[count].ts = (time_t)ts;
+            out[count].cap = c;
+            out[count].mv = v;
+            out[count].ma = a;
+            snprintf(out[count].status, sizeof(out[count].status), "%s", st);
+            snprintf(out[count].event, sizeof(out[count].event), "%s", ev[0] ? ev : "TICK");
+            count++;
+        }
+    }
+    fclose(rf);
+    return count;
 }
 
 static int run_cmd_capture(char *const argv[], char *out, size_t out_sz) {
@@ -306,7 +410,7 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
 
     fb_fill_rect(fb, rx + 20, ry + 136, rw - 40, 2, tp->bar_border);
 
-    fb_draw_text(fb, rx + 24, ry + 156, "BATTERY & STORAGE", tp->accent, 2);
+    fb_draw_text(fb, rx + 24, ry + 150, "BATTERY & DAY TRACKER", tp->accent, 2);
     int cap = read_int_file("/sys/class/power_supply/battery/capacity", -1);
     int vol = read_int_file("/sys/class/power_supply/battery/batt_vol", 0);
     int cur = read_int_file("/sys/class/power_supply/battery/BatteryAverageCurrent", 0);
@@ -314,22 +418,69 @@ void settings_render(FB *fb, ThemeKind theme, const SettingsState *st) {
     char bstat[32];
     read_str_file("/sys/class/power_supply/battery/status", bstat, sizeof(bstat), "UNKNOWN");
 
-    snprintf(line, sizeof(line), "LEVEL   : %d%% (%s)", cap, bstat);
-    fb_draw_text(fb, rx + 24, ry + 196, line, tp->bar_text, 2);
-    snprintf(line, sizeof(line), "POWER   : %d MV   |   %d MA   |   %.1f C", vol, cur, (float)tmp / 10.0f);
-    fb_draw_text(fb, rx + 24, ry + 228, line, tp->bar_muted, 2);
-
     struct statvfs vfs;
+    double free_gb = 0.0, tot_gb = 0.0;
     if (statvfs("/data", &vfs) == 0) {
-        double free_gb = (double)vfs.f_bavail * (double)vfs.f_frsize / (1024.0 * 1024.0 * 1024.0);
-        double tot_gb  = (double)vfs.f_blocks * (double)vfs.f_frsize / (1024.0 * 1024.0 * 1024.0);
-        snprintf(line, sizeof(line), "STORAGE : %.1f GB FREE / %.1f GB TOTAL", free_gb, tot_gb);
-    } else {
-        snprintf(line, sizeof(line), "STORAGE : UNAVAILABLE");
+        free_gb = (double)vfs.f_bavail * (double)vfs.f_frsize / (1024.0 * 1024.0 * 1024.0);
+        tot_gb  = (double)vfs.f_blocks * (double)vfs.f_frsize / (1024.0 * 1024.0 * 1024.0);
     }
-    fb_draw_text(fb, rx + 24, ry + 260, line, tp->bar_text, 2);
 
-    fb_fill_rect(fb, rx + 20, ry + 306, rw - 40, 2, tp->bar_border);
+    snprintf(line, sizeof(line), "%d%% (%s)  |  %d MV  |  %d MA  |  %.1fC  |  %.1f/%.1f GB",
+             cap, bstat, vol, cur, (float)tmp / 10.0f, free_gb, tot_gb);
+    fb_draw_text(fb, rx + 24, ry + 180, line, tp->bar_text, 2);
+
+    /* 24-hour / 32-sample Battery History Bar Chart */
+    BattSample samples[32];
+    int scount = load_batt_samples(samples, 32);
+    int gx = rx + 24, gy = ry + 208, gw = rw - 48, gh = 92;
+    fb_fill_rect(fb, gx, gy, gw, gh, tp->bar_bg);
+    fb_stroke_rect(fb, gx, gy, gw, gh, 1, tp->bar_border);
+    /* 50% dashed reference line */
+    for (int dx = gx + 6; dx < gx + gw - 6; dx += 12) {
+        fb_fill_rect(fb, dx, gy + gh / 2, 6, 1, tp->bar_border);
+    }
+    fb_draw_text(fb, gx + 6, gy + 6, "100%", tp->bar_muted, 1);
+    fb_draw_text(fb, gx + 6, gy + gh / 2 - 4, "50%", tp->bar_muted, 1);
+
+    if (scount > 0) {
+        int slot_w = (gw - 52) / 32;
+        if (slot_w < 8) slot_w = 8;
+        int start_x = gx + 44;
+        for (int i = 0; i < scount; i++) {
+            int c = samples[i].cap;
+            if (c < 0) c = 0;
+            if (c > 100) c = 100;
+            int bh = ((gh - 24) * c) / 100;
+            if (bh < 3) bh = 3;
+            int bx = start_x + i * slot_w;
+            int by = gy + gh - 16 - bh;
+            uint32_t bcol = (c <= 20) ? 0xD9383A :
+                            (strncmp(samples[i].status, "Charging", 8) == 0 ? 0x2E8B57 : tp->accent);
+            fb_fill_rect(fb, bx, by, slot_w - 3, bh, bcol);
+        }
+        /* Show first, middle, and latest timestamps + drain summary */
+        struct tm tm0, tm1;
+        localtime_r(&samples[0].ts, &tm0);
+        localtime_r(&samples[scount - 1].ts, &tm1);
+        double hrs = difftime(samples[scount - 1].ts, samples[0].ts) / 3600.0;
+        int dcap = samples[scount - 1].cap - samples[0].cap;
+        char hinfo[128];
+        if (hrs >= 0.05) {
+            snprintf(hinfo, sizeof(hinfo), "%02d:%02d (%d%%) -> %02d:%02d (%d%%)  |  %+d%% IN %.1fH (%.1f%%/H)",
+                     tm0.tm_hour, tm0.tm_min, samples[0].cap,
+                     tm1.tm_hour, tm1.tm_min, samples[scount - 1].cap,
+                     dcap, hrs, (double)dcap / hrs);
+        } else {
+            snprintf(hinfo, sizeof(hinfo), "LOGGED %d SAMPLE%s (LATEST %02d:%02d @ %d%% [%s])",
+                     scount, scount == 1 ? "" : "S",
+                     tm1.tm_hour, tm1.tm_min, samples[scount - 1].cap, samples[scount - 1].event);
+        }
+        fb_draw_text(fb, gx + 44, gy + gh - 12, hinfo, tp->bar_muted, 1);
+    } else {
+        fb_draw_text(fb, gx + 54, gy + 40, "RECORDING BATTERY HISTORY...", tp->bar_muted, 2);
+    }
+
+    fb_fill_rect(fb, rx + 20, ry + 312, rw - 40, 2, tp->bar_border);
 
     fb_draw_text(fb, rx + 24, ry + 326, "REMOTE & WI-FI DROP (ETAB.LOCAL)", tp->accent, 2);
     snprintf(line, sizeof(line), "DROP : HTTP://ETAB.LOCAL:8080   (ADB :5555)");

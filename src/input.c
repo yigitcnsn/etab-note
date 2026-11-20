@@ -635,6 +635,7 @@ bool input_poll_once(App *app, int timeout_ms) {
 
     if (now - app->last_status_tick >= 60) {
         app->last_status_tick = now;
+        settings_log_battery("TICK");
         mdns_announce(&app->mdns);
         if (app->settings.open) {
             settings_refresh(&app->settings);

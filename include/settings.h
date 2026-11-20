@@ -3,6 +3,9 @@
 
 #include "types.h"
 
+#define BATT_LOG_PATH "/data/noteos/battery_log.csv"
+
+void           settings_log_battery(const char *event);
 void           settings_refresh(SettingsState *st);
 void           settings_scan_wifi(SettingsState *st);
 void           settings_connect_wifi(SettingsState *st, const char *ssid, const char *psk);

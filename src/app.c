@@ -171,11 +171,13 @@ void app_toggle_sleep(App *app) {
         fb_set_backlight(0);
         fb_blank(&app->fb, true);
         app->sleeping = true;
+        settings_log_battery("SLEEP");
         set_power_profile(true);
     } else {
         app->sleeping = false;
         app->last_activity_time = time(NULL);
         set_power_profile(false);
+        settings_log_battery("WAKE");
         fb_blank(&app->fb, false);
         fb_set_backlight(app->saved_brightness);
         fb_mark_all(&app->fb);
