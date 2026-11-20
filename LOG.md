@@ -337,3 +337,16 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   make -C /Volumes/X/developer/etab5-noteos deploy
   ./scripts/sync_engram.py --fresh
   ```
+
+### Step 27: Deep Sleep (`mem` suspend-to-RAM), 5-min Auto-Sleep, CPU `powersave` & Wi-Fi 802.11 Power Save
+- **Problem:** Overnight idle drain was ~60% (92% -> 32%) because `app_toggle_sleep()` only turned off the backlight while keeping the CPU at 1.66 GHz, polling `evdev` every 1 second, broadcasting mDNS every 20s, and polling DHCP every 2s without entering kernel suspend (`mem`).
+- **Fixes:**
+  - `src/app.c`: `app_toggle_sleep()` now enables IEEE 802.11 Wi-Fi power-save (`wpa_cli -i wlan0 set ps 1`), switches `cpu0` governor to `powersave` (728 MHz floor), triggers MediaTek `sb_state` (`suspend`), and writes `mem` to `/sys/power/state` (Linux kernel suspend-to-RAM). On wake (`KEY_POWER`), restores `sb_state` (`resume`) and `hotplug` governor.
+  - `src/input.c`, `src/main.c`: In sleep mode, `poll()` now uses infinite timeout (`-1`) and ignores Wacom/touch digitizer interrupts until `KEY_POWER` wakes the device. Added a 5-minute (`300s`) inactivity auto-sleep timer and relaxed active status/mDNS ticks from 20s to 60s.
+  - `daemons/dhcpc.c`: Relaxed post-lease DHCP check interval from 2s to 30s.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ./scripts/deploy.sh
+  ```
+- **Result:** Deployed and verified running on `192.168.1.189:5555` (`728 MHz` idle, `wpa_cli set ps 1` active).

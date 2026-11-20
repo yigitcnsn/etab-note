@@ -9,7 +9,40 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+static void write_sysfs_str(const char *path, const char *val) {
+    FILE *f = fopen(path, "w");
+    if (f) {
+        fputs(val, f);
+        fclose(f);
+    }
+}
+
+static void set_power_profile(bool low_power) {
+    /* 1. Wi-Fi IEEE 802.11 power-save mode (DTIM beacon listen) */
+    if (access("/system/bin/wpa_cli", X_OK) == 0) {
+        if (low_power) {
+            system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
+        } else {
+            system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
+        }
+    }
+    /* 2. CPU frequency floor / governor & MediaTek Smart-Book suspend state */
+    if (low_power) {
+        write_sysfs_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "powersave\n");
+        write_sysfs_str("/sys/power/sb_state", "suspend\n");
+        /* Enter Linux kernel suspend-to-RAM (blocks until hardware KEY_POWER or wakeup IRQ;
+           immediately returns if charger wakelock is active while plugged in) */
+        sync();
+        write_sysfs_str("/sys/power/state", "mem\n");
+    } else {
+        write_sysfs_str("/sys/power/sb_state", "resume\n");
+        write_sysfs_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "hotplug\n");
+    }
+}
 
 int app_canvas_clip_x0(const App *app) {
     return app->sidebar_open ? SIDEBAR_W : 0;
@@ -138,8 +171,11 @@ void app_toggle_sleep(App *app) {
         fb_set_backlight(0);
         fb_blank(&app->fb, true);
         app->sleeping = true;
+        set_power_profile(true);
     } else {
         app->sleeping = false;
+        app->last_activity_time = time(NULL);
+        set_power_profile(false);
         fb_blank(&app->fb, false);
         fb_set_backlight(app->saved_brightness);
         fb_mark_all(&app->fb);

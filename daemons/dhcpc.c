@@ -327,11 +327,11 @@ int main(int argc, char **argv) {
                 if (lease < 120) lease = 120;
                 next_renew = time(NULL) + (time_t)(lease / 2);
             } else {
-                sleep(2);
+                sleep(5);
                 continue;
             }
         }
-        sleep(2);
+        sleep(cur_ip != 0 ? 30 : 3);
     }
     return 0;
 }

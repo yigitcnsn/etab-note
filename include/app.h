@@ -90,6 +90,7 @@ typedef struct {
     int fd_key;
 
     time_t last_status_tick;
+    time_t last_activity_time;
 } App;
 
 int  app_canvas_clip_x0(const App *app);

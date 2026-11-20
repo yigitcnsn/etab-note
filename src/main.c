@@ -9,8 +9,10 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 static volatile sig_atomic_t g_sig_quit = 0;
 
@@ -45,6 +47,11 @@ int main(void) {
         return 1;
     }
 
+    /* Enable IEEE 802.11 Wi-Fi power-save on boot */
+    if (access("/system/bin/wpa_cli", X_OK) == 0) {
+        system("/system/bin/wpa_cli -p /data/misc/wifi/sockets -i wlan0 set ps 1 >/dev/null 2>&1");
+    }
+
     mdns_open(&app.mdns);
     drop_open(&app.drop);
 
@@ -56,9 +63,10 @@ int main(void) {
         fb_present(&app.fb, false, 0, 0, false, app_canvas_clip_x0(&app));
     }
     app.last_status_tick = time(NULL);
+    app.last_activity_time = app.last_status_tick;
 
     while (!g_sig_quit && !app.quit) {
-        if (!input_poll_once(&app, 1000)) break;
+        if (!input_poll_once(&app, app.sleeping ? -1 : 1000)) break;
     }
 
     app_finish_active_stroke(&app);

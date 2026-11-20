@@ -551,6 +551,35 @@ static bool handle_stylus(App *app) {
 }
 
 bool input_poll_once(App *app, int timeout_ms) {
+    if (app->sleeping) {
+        /* In sleep mode, only poll hardware keys (KEY_POWER) and incoming Drop/mDNS sockets,
+           with infinite timeout (-1) so the CPU stays in deep WFI / powersave at 0% load. */
+        struct pollfd spfds[3] = {
+            { .fd = app->fd_key,         .events = POLLIN },
+            { .fd = app->mdns.fd,        .events = POLLIN },
+            { .fd = app->drop.listen_fd, .events = POLLIN }
+        };
+        int spr = poll(spfds, 3, -1);
+        if (spr < 0) return errno == EINTR;
+        if (app->mdns.fd >= 0 && (spfds[1].revents & POLLIN)) {
+            mdns_handle_readable(&app->mdns);
+        }
+        if (app->drop.listen_fd >= 0 && (spfds[2].revents & POLLIN)) {
+            DropEvent dev;
+            if (drop_accept_and_handle(&app->drop, &dev)) {
+                handle_drop_event(app, &dev);
+            }
+        }
+        if (app->fd_key >= 0 && (spfds[0].revents & POLLIN)) {
+            /* Drain any buffered touch/pen events before waking */
+            struct input_event ev;
+            while (read(app->fd_pen, &ev, sizeof(ev)) > 0) {}
+            if (app->fd_touch >= 0) while (read(app->fd_touch, &ev, sizeof(ev)) > 0) {}
+            handle_keys(app);
+        }
+        return true;
+    }
+
     struct pollfd pfds[5] = {
         { .fd = app->fd_pen,         .events = POLLIN },
         { .fd = app->fd_touch,       .events = POLLIN },
@@ -563,6 +592,7 @@ bool input_poll_once(App *app, int timeout_ms) {
     if (pr < 0) return errno == EINTR;
 
     bool need_present = false;
+    time_t now = time(NULL);
 
     if (app->mdns.fd >= 0 && (pfds[3].revents & POLLIN)) {
         mdns_handle_readable(&app->mdns);
@@ -570,35 +600,40 @@ bool input_poll_once(App *app, int timeout_ms) {
     if (app->drop.listen_fd >= 0 && (pfds[4].revents & POLLIN)) {
         DropEvent dev;
         if (drop_accept_and_handle(&app->drop, &dev)) {
+            app->last_activity_time = now;
             handle_drop_event(app, &dev);
             if (!app->sleeping) need_present = true;
         }
     }
 
-    if (app->fd_key >= 0 && (pfds[2].revents & POLLIN)) handle_keys(app);
-
-    if (app->sleeping) {
-        struct input_event ev;
-        if (pfds[0].revents & POLLIN) while (read(app->fd_pen, &ev, sizeof(ev)) > 0) {}
-        if (app->fd_touch >= 0 && (pfds[1].revents & POLLIN)) while (read(app->fd_touch, &ev, sizeof(ev)) > 0) {}
-        return true;
+    if (app->fd_key >= 0 && (pfds[2].revents & POLLIN)) {
+        app->last_activity_time = now;
+        handle_keys(app);
+        if (app->sleeping) return true;
     }
 
     if (app->fd_touch >= 0 && (pfds[1].revents & POLLIN)) {
+        app->last_activity_time = now;
         if (handle_touch(app)) need_present = true;
     }
     if (pfds[0].revents & POLLIN) {
+        app->last_activity_time = now;
         if (handle_stylus(app)) need_present = true;
     }
 
-    time_t now = time(NULL);
+    /* Auto-sleep after 5 minutes (300s) of no stylus, touch, key, or drop activity */
+    if (!app->sleeping && app->last_activity_time > 0 && (now - app->last_activity_time >= 300)) {
+        app_toggle_sleep(app);
+        return true;
+    }
+
     if (app->toast_msg[0] && now > app->toast_until) {
         app->toast_msg[0] = '\0';
         app_redraw_all(app);
         need_present = true;
     }
 
-    if (now - app->last_status_tick >= 20) {
+    if (now - app->last_status_tick >= 60) {
         app->last_status_tick = now;
         mdns_announce(&app->mdns);
         if (app->settings.open) {
