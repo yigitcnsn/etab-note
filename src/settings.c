@@ -442,7 +442,7 @@ void settings_render(FB *fb, ThemeKind theme, PaperKind paper, const SettingsSta
     fb_fill_rect(fb, 0, 0, fb->w, TOOLBAR_H, tp->bar_bg);
     fb_fill_rect(fb, 0, TOOLBAR_H - 2, fb->w, 2, tp->bar_border);
     fb_draw_button(fb, tp, 14, 9, 130, 40, "< BACK", true, false);
-    fb_draw_text(fb, 170, 20, "E-TAB 5 OS SETTINGS & ACTIVITY LOG", tp->bar_text, 2);
+    fb_draw_text(fb, 170, 20, "E-TAB 5 OS SETTINGS  |  V" NOTEOS_VERSION, tp->bar_text, 2);
     if (st->status_msg[0]) {
         int tw = fb_text_width(st->status_msg, 2);
         fb_draw_text(fb, fb->w - tw - 24, 20, st->status_msg, tp->accent, 2);
@@ -627,7 +627,7 @@ void settings_render(FB *fb, ThemeKind theme, PaperKind paper, const SettingsSta
     fb_draw_button(fb, tp, rx + 312, ry + 620, 270, 58,
                    st->confirm_action == 3 ? "CONFIRM OFF?" : "POWER OFF", false, st->confirm_action == 3);
 
-    fb_draw_text(fb, rx + 24, ry + rh - 36, "E-TAB 5 BARE NOTE OS  |  LINUX 3.4.67 ARMV7", tp->bar_muted, 2);
+    fb_draw_text(fb, rx + 24, ry + rh - 36, "E-TAB 5 BARE NOTE OS V" NOTEOS_VERSION "  |  LINUX 3.4.67 ARMV7", tp->bar_muted, 2);
 
     if (st->osk.open) {
         osk_render_full(fb, theme, &st->osk);

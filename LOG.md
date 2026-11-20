@@ -418,3 +418,15 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   adb -s FXICBUF821BC8NA push "~/Library/Mobile Documents/com~apple~CloudDocs/Engram/Engram Notes/Coding/E-Tab 5 Note OS.md" "/data/noteos/notes/Coding/E-Tab 5 Note OS.md"
   ```
 - **Result:** Flashed `build/bootimg_noteos.img` (`6,213,632` bytes) to `/dev/bootimg`, verified on-flash SHA-256 `998d1da31a5283e81d1d3ad1a270841bde90ac74259ed3b22e3cbc2cdb269f90` matches `build/bootimg_noteos.img` 100%, and synced the updated `Coding/E-Tab 5 Note OS.md` guide to both iCloud Engram Notes and the tablet.
+
+### Step 34: Prepare Public `v1.0.0` Release (Version Indicator, MIT License, Screenshots, Docs & GitHub Release)
+- **Changes:**
+  - `include/types.h`, `src/settings.c`: Added `NOTEOS_VERSION "1.0.0"` and rendered `V1.0.0` in both the OS Settings header and footer.
+  - `scripts/sync_engram.py`: Added `NOTES_DIR` environment variable support so any Obsidian/Markdown vault can be synced.
+  - `LICENSE`, `README.md`, `docs/screenshots/{canvas,settings}.png`: Added MIT License, live 1920×1200 framebuffer screenshots (with Wi-Fi SSID redacted), and a complete step-by-step Backup → Build → Flash → Restore installation guide.
+- **Commands:**
+  ```bash
+  make clean && make all && make bootimg
+  ANDROID_SERIAL=FXICBUF821BC8NA ./scripts/deploy.sh
+  ```
+- **Result:** Built clean static ARMv7 `v1.0.0` binaries (`noteos` 240 KB, `noteos-dhcp` 28 KB), deployed live to E-Tab 5, captured framebuffer screenshots, published `yigitcnsn/etab-note` as public, and tagged/published GitHub Release `v1.0.0`.

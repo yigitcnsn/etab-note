@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef NOTEOS_VERSION
+#define NOTEOS_VERSION "1.0.0"
+#endif
+
 #define STORAGE_DIR    "/data/noteos/notes"
 #define IMAGES_DIR     "/data/noteos/images"
 #define PREFS_PATH     "/data/noteos/prefs.conf"

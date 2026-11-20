@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """
-Two-way sync between macOS iCloud Engram Notes and E-Tab 5 (/data/noteos/notes).
+Two-way sync between a local Markdown vault (Obsidian / iCloud Engram Notes)
+and E-Tab 5 (/data/noteos/notes).
+
 Usage:
-  ./scripts/sync_engram.py --fresh   # wipe tablet notes & push clean copy of Engram vault
-  ./scripts/sync_engram.py           # two-way incremental sync (.md notes & folders)
+  ./scripts/sync_engram.py --fresh                 # wipe tablet notes & push clean copy
+  ./scripts/sync_engram.py                         # two-way incremental sync (.md & folders)
+  NOTES_DIR=~/Notes ./scripts/sync_engram.py       # override local Markdown vault path
+  ETAB_HOST=192.168.1.50:5555 ./scripts/sync_engram.py
 """
 
 import os
 import subprocess
 import sys
 
-ENGRAM_DIR = os.path.expanduser(
+DEFAULT_NOTES_DIR = os.path.expanduser(
     "~/Library/Mobile Documents/com~apple~CloudDocs/Engram/Engram Notes"
 )
+ENGRAM_DIR = os.path.expanduser(os.environ.get("NOTES_DIR", DEFAULT_NOTES_DIR))
 REMOTE_DIR = "/data/noteos/notes"
 HOST = os.environ.get("ETAB_HOST", "etab.local:5555")
 
