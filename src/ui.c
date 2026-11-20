@@ -16,6 +16,19 @@ static bool hit_rect(int px, int py, int x, int y, int w, int h) {
     return px >= x && px < x + w && py >= y && py < y + h;
 }
 
+static bool hit_btn(App *app, int px, int py, int x, int y, int w, int h) {
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+        app->fb.last_btn_x = x;
+        app->fb.last_btn_y = y;
+        app->fb.last_btn_w = w;
+        app->fb.last_btn_h = h;
+        app->fb.last_btn_label[0] = '\0';
+        fb_flash_last_button(&app->fb, &THEMES[app->doc.theme]);
+        return true;
+    }
+    return false;
+}
+
 static int read_int_sysfs(const char *path, int fallback) {
     FILE *f = fopen(path, "r");
     if (!f) return fallback;
@@ -340,7 +353,7 @@ static bool handle_radial_tap(App *app, int x, int y) {
 
 static bool handle_toolbar_tap(App *app, int x, int y) {
     int by = 9, bh = 40;
-    if (hit_rect(x, y, 12, by, 114, bh)) {
+    if (hit_btn(app, x, y, 12, by, 114, bh)) {
         app->sidebar_open = !app->sidebar_open;
         app->move_mode = false;
         if (app->sidebar_open) {
@@ -352,41 +365,41 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     }
 
     if (app->md.active) {
-        if (hit_rect(x, y, 950, by, 116, bh)) {
+        if (hit_btn(app, x, y, 950, by, 116, bh)) {
             osk_open(&app->settings.osk, OSK_MD_ADD_TASK, "ADD CHECKLIST TASK:", "", NULL);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1076, by, 116, bh)) {
+        if (hit_btn(app, x, y, 1076, by, 116, bh)) {
             osk_open(&app->settings.osk, OSK_MD_ADD_LINE, "APPEND LINE TO NOTE:", "", NULL);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1210, by, 72, bh)) {
+        if (hit_btn(app, x, y, 1210, by, 72, bh)) {
             md_scroll(&app->md, -480, app->fb.h - TOOLBAR_H);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1290, by, 72, bh)) {
+        if (hit_btn(app, x, y, 1290, by, 72, bh)) {
             md_scroll(&app->md, 480, app->fb.h - TOOLBAR_H);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1380, by, 100, bh)) {
+        if (hit_btn(app, x, y, 1380, by, 100, bh)) {
             app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
             app->pref_theme = (ThemeKind)app->doc.theme;
             prefs_save(app);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1490, by, 122, bh)) {
+        if (hit_btn(app, x, y, 1490, by, 122, bh)) {
             char id[64], def_title[64];
             storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), def_title, sizeof(def_title));
             osk_open(&app->settings.osk, OSK_NEW_NOTE, "NEW DRAWING NAME:", def_title, NULL);
             app_redraw_all(app);
             return true;
         }
-        if (hit_rect(x, y, 1622, by, 72, bh)) {
+        if (hit_btn(app, x, y, 1622, by, 72, bh)) {
             app->settings.open = true;
             app->settings.confirm_action = 0;
             app->settings.status_msg[0] = '\0';
@@ -400,7 +413,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     if (!hit_rect(x, y, 1230, by, 92, bh)) app->confirm_clear = false;
     app->confirm_delete = false;
 
-    if (hit_rect(x, y, 146, by, 102, bh)) {
+    if (hit_btn(app, x, y, 146, by, 102, bh)) {
         if (app->tool == TOOL_PEN) app->tool = TOOL_BRUSH;
         else if (app->tool == TOOL_BRUSH) app->tool = TOOL_PENCIL;
         else app->tool = TOOL_PEN;
@@ -408,12 +421,12 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 254, by, 58, bh)) { app->tool = TOOL_HIGHLIGHTER; prefs_save(app); ui_draw_toolbar(app); return true; }
-    if (hit_rect(x, y, 318, by, 92, bh)) { app->tool = TOOL_ERASER; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 254, by, 58, bh)) { app->tool = TOOL_HIGHLIGHTER; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 318, by, 92, bh)) { app->tool = TOOL_ERASER; prefs_save(app); ui_draw_toolbar(app); return true; }
 
-    if (hit_rect(x, y, 430, by, 44, bh)) { app->size_idx = 0; prefs_save(app); ui_draw_toolbar(app); return true; }
-    if (hit_rect(x, y, 480, by, 44, bh)) { app->size_idx = 1; prefs_save(app); ui_draw_toolbar(app); return true; }
-    if (hit_rect(x, y, 530, by, 44, bh)) { app->size_idx = 2; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 430, by, 44, bh)) { app->size_idx = 0; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 480, by, 44, bh)) { app->size_idx = 1; prefs_save(app); ui_draw_toolbar(app); return true; }
+    if (hit_btn(app, x, y, 530, by, 44, bh)) { app->size_idx = 2; prefs_save(app); ui_draw_toolbar(app); return true; }
 
     for (int i = 0; i < 5; i++) {
         int cx = 614 + i * 44, cy = TOOLBAR_H / 2;
@@ -428,15 +441,17 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
     }
 
     Page *pg = &app->doc.pages[app->doc.cur_page];
-    if (hit_rect(x, y, 832, by, 86, bh)) {
+    if (hit_btn(app, x, y, 832, by, 86, bh)) {
         if (page_undo(pg)) { app->doc.dirty = true; app_save_current(app); app_redraw_all(app); }
+        else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 924, by, 86, bh)) {
+    if (hit_btn(app, x, y, 924, by, 86, bh)) {
         if (page_redo(pg)) { app->doc.dirty = true; app_save_current(app); app_redraw_all(app); }
+        else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 1018, by, 100, bh)) {
+    if (hit_btn(app, x, y, 1018, by, 100, bh)) {
         app->doc.paper = (uint8_t)((app->doc.paper + 1) % PAPER_COUNT);
         app->pref_paper = (PaperKind)app->doc.paper;
         app->doc.dirty = true;
@@ -445,7 +460,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 1124, by, 100, bh)) {
+    if (hit_btn(app, x, y, 1124, by, 100, bh)) {
         app->doc.theme = (uint8_t)((app->doc.theme + 1) % THEME_COUNT);
         app->pref_theme = (ThemeKind)app->doc.theme;
         app->doc.dirty = true;
@@ -454,7 +469,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 1230, by, 92, bh)) {
+    if (hit_btn(app, x, y, 1230, by, 92, bh)) {
         if (!app->confirm_clear) {
             app->confirm_clear = true;
             ui_draw_toolbar(app);
@@ -469,7 +484,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         }
         return true;
     }
-    if (hit_rect(x, y, 1346, by, 44, bh)) {
+    if (hit_btn(app, x, y, 1346, by, 44, bh)) {
         if (app->doc.cur_page > 0) {
             app->doc.cur_page--;
             app->selected_img = -1;
@@ -478,10 +493,10 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
-        }
+        } else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 1482, by, 44, bh)) {
+    if (hit_btn(app, x, y, 1482, by, 44, bh)) {
         if (app->doc.cur_page + 1 < app->doc.page_count) {
             app->doc.cur_page++;
             app->selected_img = -1;
@@ -490,10 +505,10 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
-        }
+        } else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 1530, by, 48, bh)) {
+    if (hit_btn(app, x, y, 1530, by, 48, bh)) {
         if (app->doc.page_count < MAX_PAGES) {
             page_init(&app->doc.pages[app->doc.page_count]);
             app->doc.cur_page = app->doc.page_count;
@@ -504,16 +519,16 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
             app->doc.dirty = true;
             app_save_current(app);
             app_redraw_all(app);
-        }
+        } else ui_draw_toolbar(app);
         return true;
     }
-    if (hit_rect(x, y, 1582, by, 54, bh)) {
+    if (hit_btn(app, x, y, 1582, by, 54, bh)) {
         app_finish_active_stroke(app);
         osk_open(&app->settings.osk, OSK_NEW_TEXTBOX, "NEW TEXT BOX:", "", NULL);
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 1640, by, 66, bh)) {
+    if (hit_btn(app, x, y, 1640, by, 66, bh)) {
         app_finish_active_stroke(app);
         if (app->obj_edit_mode || app->selected_img >= 0 || app->selected_text >= 0) {
             app->obj_edit_mode = false;
@@ -528,7 +543,7 @@ static bool handle_toolbar_tap(App *app, int x, int y) {
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 1710, by, 58, bh)) {
+    if (hit_btn(app, x, y, 1710, by, 58, bh)) {
         app_finish_active_stroke(app);
         app_save_current(app);
         app->radial.open = false;
@@ -611,7 +626,7 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
 
     int ry = TOOLBAR_H + 12;
     if (app->cur_folder[0] != '\0') {
-        if (hit_rect(x, y, 14, ry, 88, 38)) {
+        if (hit_btn(app, x, y, 14, ry, 88, 38)) {
             pop_folder_level(app->cur_folder);
             app->sidebar_scroll = 0;
             app->confirm_delete = false;
@@ -623,19 +638,19 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
     }
 
     /* Creation row: [+DRAW] [+MD] [+DIR] */
-    if (hit_rect(x, y, 14, ry, 92, 40)) {
+    if (hit_btn(app, x, y, 14, ry, 92, 40)) {
         char id[64], def_title[64];
         storage_next_id(STORAGE_DIR, app->cur_folder, id, sizeof(id), def_title, sizeof(def_title));
         osk_open(&app->settings.osk, OSK_NEW_NOTE, "NEW DRAWING NAME:", def_title, NULL);
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 112, ry, 92, 40)) {
+    if (hit_btn(app, x, y, 112, ry, 92, 40)) {
         osk_open(&app->settings.osk, OSK_NEW_MD, "NEW MARKDOWN NOTE:", "", NULL);
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 210, ry, 94, 40)) {
+    if (hit_btn(app, x, y, 210, ry, 94, 40)) {
         osk_open(&app->settings.osk, OSK_NEW_FOLDER, "NEW FOLDER NAME:", "", NULL);
         app_redraw_all(app);
         return true;
@@ -651,13 +666,13 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
     /* Sidebar pager */
     if (total_items > visible_rows) {
         int py = footer_top - 40;
-        if (hit_rect(x, y, 14, py, 140, 34)) {
+        if (hit_btn(app, x, y, 14, py, 140, 34)) {
             app->sidebar_scroll -= 5;
             if (app->sidebar_scroll < 0) app->sidebar_scroll = 0;
             ui_draw_sidebar(app);
             return true;
         }
-        if (hit_rect(x, y, 162, py, 142, 34)) {
+        if (hit_btn(app, x, y, 162, py, 142, 34)) {
             app->sidebar_scroll += 5;
             ui_draw_sidebar(app);
             return true;
@@ -665,29 +680,29 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
     }
 
     /* Bottom action buttons */
-    if (app->cur_folder[0] != '\0' && hit_rect(x, y, 14, fy - 102, SIDEBAR_W - 30, 42)) {
+    if (app->cur_folder[0] != '\0' && hit_btn(app, x, y, 14, fy - 102, SIDEBAR_W - 30, 42)) {
         char fdisp[64];
         app_pretty_folder_name(app->cur_folder, fdisp, sizeof(fdisp));
         osk_open(&app->settings.osk, OSK_RENAME_FOLDER, "RENAME FOLDER:", fdisp, NULL);
         app_redraw_all(app);
         return true;
     }
-    if (hit_rect(x, y, 14, fy - 52, 140, 42)) {
+    if (hit_btn(app, x, y, 14, fy - 52, 140, 42)) {
         if (!app->md.active) {
             osk_open(&app->settings.osk, OSK_RENAME_NOTE, "RENAME CURRENT DRAWING:", app->doc.title, NULL);
             app_redraw_all(app);
-        }
+        } else ui_draw_sidebar(app);
         return true;
     }
-    if (hit_rect(x, y, 162, fy - 52, 142, 42)) {
+    if (hit_btn(app, x, y, 162, fy - 52, 142, 42)) {
         if (!app->md.active) {
             app_refresh_browser(app);
             app->move_mode = true;
-            ui_draw_sidebar(app);
         }
+        ui_draw_sidebar(app);
         return true;
     }
-    if (hit_rect(x, y, 14, fy, 140, 46)) {
+    if (hit_btn(app, x, y, 14, fy, 140, 46)) {
         if (!app->confirm_delete) {
             app->confirm_delete = true;
             ui_draw_sidebar(app);
@@ -713,7 +728,7 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
         }
         return true;
     }
-    if (hit_rect(x, y, 162, fy, 142, 46)) {
+    if (hit_btn(app, x, y, 162, fy, 142, 46)) {
         app_save_current(app);
         app->quit = true;
         return true;
@@ -723,7 +738,7 @@ static bool handle_sidebar_tap(App *app, int x, int y) {
     int drawn = 0;
     for (int idx = app->sidebar_scroll; idx < total_items && drawn < visible_rows; idx++, drawn++) {
         int item_y = ry + drawn * row_h;
-        if (!hit_rect(x, y, 10, item_y, SIDEBAR_W - 22, 46)) continue;
+        if (!hit_btn(app, x, y, 10, item_y, SIDEBAR_W - 22, 46)) continue;
 
         if (idx < app->folder_count) {
             char next_dir[256];

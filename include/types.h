@@ -152,6 +152,8 @@ typedef struct {
     int back_page;
     Rect dirty[2];
     Rect prev_cursor[2];
+    int last_btn_x, last_btn_y, last_btn_w, last_btn_h;
+    char last_btn_label[32];
 } FB;
 
 typedef struct {

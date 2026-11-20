@@ -14,6 +14,6 @@ else
     fi
 fi
 
-adb "${ADB_ARGS[@]}" push build/noteos /data/noteos/noteos.new
-adb "${ADB_ARGS[@]}" shell "mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos && killall noteos"
+adb ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} push build/noteos /data/noteos/noteos.new
+adb ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} shell "mv /data/noteos/noteos.new /data/noteos/noteos && chmod +x /data/noteos/noteos && killall noteos"
 echo "Deployed and restarted /data/noteos/noteos"

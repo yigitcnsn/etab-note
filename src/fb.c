@@ -403,6 +403,46 @@ void fb_draw_button(FB *fb, const ThemePalette *tp, int x, int y, int w, int h,
     fb_draw_text(fb, x + (w - tw) / 2, y + (h - 14) / 2, label, fg, 2);
 }
 
+void fb_flash_last_button(FB *fb, const ThemePalette *tp) {
+    if (fb->last_btn_w <= 0 || fb->last_btn_h <= 0) return;
+    int x = fb->last_btn_x, y = fb->last_btn_y, w = fb->last_btn_w, h = fb->last_btn_h;
+    int x0 = x < 0 ? 0 : x;
+    int y0 = y < 0 ? 0 : y;
+    int x1 = x + w - 1;
+    int y1 = y + h - 1;
+    if (x1 >= fb->w) x1 = fb->w - 1;
+    if (y1 >= fb->h) y1 = fb->h - 1;
+    if (x0 > x1 || y0 > y1) return;
+
+    /* Invert/highlight existing button pixels & text in-place + draw thick accent border */
+    uint32_t acc = fb_pack_hex(fb, tp->accent);
+    uint32_t wht = fb_pack_hex(fb, 0xFFFFFF);
+    for (int row = y0; row <= y1; row++) {
+        uint32_t *dst = fb->canvas + (size_t)row * fb->w;
+        bool border_y = (row - y0 < 4) || (y1 - row < 4);
+        for (int col = x0; col <= x1; col++) {
+            bool border_x = (col - x0 < 4) || (x1 - col < 4);
+            if (border_y || border_x) {
+                dst[col] = acc;
+            } else {
+                dst[col] = fb_blend_pixel(fb, dst[col],
+                                          (uint8_t)((tp->accent >> 16) & 0xFF),
+                                          (uint8_t)((tp->accent >> 8) & 0xFF),
+                                          (uint8_t)(tp->accent & 0xFF), 140);
+            }
+        }
+    }
+    (void)wht;
+    fb_mark_dirty(fb, x0, y0, x1, y1);
+    fb_present(fb, false, 0, 0, false, 0);
+    if (fb->double_buf) {
+        fb_present(fb, false, 0, 0, false, 0);
+    }
+    usleep(50000);
+    fb->last_btn_w = 0;
+    fb->last_btn_h = 0;
+}
+
 int fb_text_width(const char *s, int scale) {
     int count = 0;
     const char *p = s;

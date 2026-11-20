@@ -362,3 +362,13 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   adb -s 192.168.1.189:5555 shell 'cat /data/noteos/battery_log.csv'
   ```
 - **Result:** Deployed live (`241 KB`) and verified `/data/noteos/battery_log.csv` logging (`1795187177,100,4263,1810,Full,BOOT`).
+
+### Step 29: Instant Visual Button Press Feedback Across All Toolbar, Sidebar & Settings Buttons
+- **Changes:**
+  - `include/types.h`, `include/fb.h`, `src/fb.c`: Added `fb_flash_last_button()` which highlights the tapped button rectangle in-place with an accent tint + 4px accent border and flushes immediately to the framebuffer (`fb_present`) for 50ms before executing the action.
+  - `src/ui.c`, `src/settings.c`: Wired `hit_btn()` across all top toolbar buttons, `NOTES` sidebar buttons/rows, and `SET` buttons so every tap gives immediate visual press feedback.
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos all
+  ```
+- **Result:** Compiled cleanly (`0` warnings under `-Werror`, `241 KB` static ARMv7).

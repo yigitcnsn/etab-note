@@ -18,6 +18,19 @@ static bool hit_rect(int px, int py, int x, int y, int w, int h) {
     return px >= x && px < x + w && py >= y && py < y + h;
 }
 
+static bool hit_btn(FB *fb, int px, int py, int x, int y, int w, int h) {
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+        fb->last_btn_x = x;
+        fb->last_btn_y = y;
+        fb->last_btn_w = w;
+        fb->last_btn_h = h;
+        fb->last_btn_label[0] = '\0';
+        fb_flash_last_button(fb, &THEMES[0]);
+        return true;
+    }
+    return false;
+}
+
 static int read_int_file(const char *path, int fallback) {
     FILE *f = fopen(path, "r");
     if (!f) return fallback;
@@ -524,7 +537,7 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
     }
     if (!st->open) return SET_ACT_NONE;
 
-    if (hit_rect(x, y, 14, 9, 130, 40)) {
+    if (hit_btn(fb, x, y, 14, 9, 130, 40)) {
         st->open = false;
         st->confirm_action = 0;
         return SET_ACT_CLOSE;
@@ -533,12 +546,12 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
     int lx = 32, ly = TOOLBAR_H + 28, lw = 910, lh = fb->h - TOOLBAR_H - 56;
     int rx = 974, ry = ly, rw = fb->w - rx - 32;
 
-    if (hit_rect(x, y, lx + 24, ly + 162, 190, 48)) {
+    if (hit_btn(fb, x, y, lx + 24, ly + 162, 190, 48)) {
         st->confirm_action = 0;
         settings_scan_wifi(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_rect(x, y, lx + 228, ly + 162, 210, 48)) {
+    if (hit_btn(fb, x, y, lx + 228, ly + 162, 210, 48)) {
         char res[128];
         wpa_cmd("reconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "RECONNECTING...");
@@ -546,7 +559,7 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         settings_refresh(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_rect(x, y, lx + 452, ly + 162, 220, 48)) {
+    if (hit_btn(fb, x, y, lx + 452, ly + 162, 220, 48)) {
         char res[128];
         wpa_cmd("disconnect", NULL, NULL, NULL, res, sizeof(res));
         snprintf(st->status_msg, sizeof(st->status_msg), "DISCONNECTED");
@@ -557,7 +570,7 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
     int ny = ly + 280;
     int max_nets = (ly + lh - ny - 16) / 62;
     for (int i = 0; i < st->net_count && i < max_nets; i++) {
-        if (hit_rect(x, y, lx + 24, ny, lw - 48, 52)) {
+        if (hit_btn(fb, x, y, lx + 24, ny, lw - 48, 52)) {
             st->confirm_action = 0;
             if (!st->nets[i].secured) {
                 settings_connect_wifi(st, st->nets[i].ssid, "");
@@ -571,13 +584,13 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         ny += 62;
     }
 
-    if (hit_rect(x, y, rx + 24, ry + 62, 74, 52)) {
+    if (hit_btn(fb, x, y, rx + 24, ry + 62, 74, 52)) {
         int b = fb_get_backlight() - 25;
         if (b < 15) b = 15;
         fb_set_backlight(b);
         return SET_ACT_REDRAW;
     }
-    if (hit_rect(x, y, rx + rw - 98, ry + 62, 74, 52)) {
+    if (hit_btn(fb, x, y, rx + rw - 98, ry + 62, 74, 52)) {
         int b = fb_get_backlight() + 25;
         if (b > 255) b = 255;
         fb_set_backlight(b);
@@ -592,36 +605,36 @@ SettingsAction settings_handle_tap(FB *fb, SettingsState *st, int x, int y,
         return SET_ACT_REDRAW;
     }
 
-    if (hit_rect(x, y, rx + 24, ry + 402, 340, 52)) {
+    if (hit_btn(fb, x, y, rx + 24, ry + 402, 340, 52)) {
         restart_adbd_tcp(st);
         settings_refresh(st);
         return SET_ACT_REDRAW;
     }
-    if (hit_rect(x, y, rx + 380, ry + 402, 220, 52)) {
+    if (hit_btn(fb, x, y, rx + 380, ry + 402, 220, 52)) {
         settings_refresh(st);
         snprintf(st->status_msg, sizeof(st->status_msg), "STATUS REFRESHED");
         return SET_ACT_REDRAW;
     }
 
-    if (hit_rect(x, y, rx + 24, ry + 544, 270, 58)) {
+    if (hit_btn(fb, x, y, rx + 24, ry + 544, 270, 58)) {
         st->confirm_action = 0;
         return SET_ACT_SLEEP;
     }
-    if (hit_rect(x, y, rx + 312, ry + 544, 270, 58)) {
+    if (hit_btn(fb, x, y, rx + 312, ry + 544, 270, 58)) {
         if (st->confirm_action != 1) { st->confirm_action = 1; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", NULL };
         run_cmd_capture(argv, out, sizeof(out));
         return SET_ACT_NONE;
     }
-    if (hit_rect(x, y, rx + 24, ry + 620, 270, 58)) {
+    if (hit_btn(fb, x, y, rx + 24, ry + 620, 270, 58)) {
         if (st->confirm_action != 2) { st->confirm_action = 2; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", (char *)"recovery", NULL };
         run_cmd_capture(argv, out, sizeof(out));
         return SET_ACT_NONE;
     }
-    if (hit_rect(x, y, rx + 312, ry + 620, 270, 58)) {
+    if (hit_btn(fb, x, y, rx + 312, ry + 620, 270, 58)) {
         if (st->confirm_action != 3) { st->confirm_action = 3; return SET_ACT_REDRAW; }
         char out[64];
         char *argv[] = { (char *)"/system/bin/reboot", (char *)"-p", NULL };
