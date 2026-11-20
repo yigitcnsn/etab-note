@@ -408,3 +408,13 @@ Every action and command executed on the Mac and tablet is logged here chronolog
   adb -s FXICBUF821BC8NA shell 'cat /data/noteos/system_events.log'
   ```
 - **Result:** Deployed live (`246 KB`) and verified `/data/noteos/system_events.log` (`16:24:37 [100% 37mA] NOTEOS STARTED (NOTE: test)`).
+
+### Step 33: Rebuild & Flash Standalone `bootimg_noteos.img` to `/dev/bootimg` and Sync Engram Documentation
+- **Commands:**
+  ```bash
+  make -C /Volumes/X/developer/etab5-noteos bootimg
+  adb -s FXICBUF821BC8NA push build/bootimg_noteos.img /data/noteos/bootimg_noteos.img
+  adb -s FXICBUF821BC8NA shell 'dd if=/data/noteos/bootimg_noteos.img of=/dev/bootimg bs=131072 && sync && dd if=/dev/bootimg bs=2048 count=3034 2>/dev/null | sha256sum && rm -f /data/noteos/bootimg_noteos.img'
+  adb -s FXICBUF821BC8NA push "~/Library/Mobile Documents/com~apple~CloudDocs/Engram/Engram Notes/Coding/E-Tab 5 Note OS.md" "/data/noteos/notes/Coding/E-Tab 5 Note OS.md"
+  ```
+- **Result:** Flashed `build/bootimg_noteos.img` (`6,213,632` bytes) to `/dev/bootimg`, verified on-flash SHA-256 `998d1da31a5283e81d1d3ad1a270841bde90ac74259ed3b22e3cbc2cdb269f90` matches `build/bootimg_noteos.img` 100%, and synced the updated `Coding/E-Tab 5 Note OS.md` guide to both iCloud Engram Notes and the tablet.
